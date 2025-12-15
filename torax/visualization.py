@@ -226,9 +226,9 @@ def animate_particles(
 	# Tracer artists (lines + points).
 	tracer_lines = []
 	for _ in range(max(0, n_tracers)):
-		(line,) = ax.plot([], [], color="#ff7f0e", linewidth=1.0, alpha=0.6)
+		(line,) = ax.plot([], [], color="#cf0eff", linewidth=1.0, alpha=0.6)
 		tracer_lines.append(line)
-	tracer_scatter = ax.scatter([], [], s=26, c="#ff7f0e", alpha=0.95, linewidths=0)
+	tracer_scatter = ax.scatter([], [], s=26, c="#cf0eff", alpha=0.95, linewidths=0)
 	text = ax.text(
 		0.02,
 		0.98,
