@@ -151,7 +151,7 @@ def main() -> None:
     parser.add_argument("--r-outer", type=float, default=1.0)
     parser.add_argument("--seconds", type=float, default=8.0)
     parser.add_argument("--fps", type=int, default=30)
-    parser.add_argument("--n-total", type=int, default=500)
+    parser.add_argument("--n-total", type=int, default=100)
     parser.add_argument("--seed", type=int, default=7)
     args = parser.parse_args()
 
@@ -193,11 +193,6 @@ def main() -> None:
     frames = int(np.ceil(float(args.seconds) * float(args.fps)))
     rng = np.random.default_rng(int(args.seed))
 
-    # Simulation-time annotation (independent of video duration).
-    # The underlying TORAX profiles are sampled at dt=2s for a total of 80s.
-    sim_total_time_s = 80.0
-    sim_dt_s = 2.0
-
     fig, ax = plt.subplots(figsize=(6, 6), dpi=140)
     fig.patch.set_facecolor("black")
     ax.set_facecolor("black")
@@ -235,17 +230,6 @@ def main() -> None:
         trail_history = deque(maxlen=trail_frames + 1)  # +1 so we can drop current frame from trail
 
     scat = ax.scatter([], [], s=float(args.point_size), linewidths=0)
-
-    time_text = ax.text(
-        0.02,
-        0.98,
-        "t = 0 s",
-        transform=ax.transAxes,
-        ha="left",
-        va="top",
-        color="white",
-        fontsize=10,
-    )
 
     rings = int(args.rings)
     r_inner = float(args.r_inner)
@@ -337,42 +321,6 @@ def main() -> None:
         prof_t = (1.0 - w) * temp_arr[i0] + w * temp_arr[i1]
         return prof_d, prof_t
 
-    def _sim_time_seconds(frame_index: int) -> float:
-        """Map an animation frame to simulation time in seconds.
-
-        The video duration is args.seconds, but the displayed time should track the
-        simulated interval (0..sim_total_time_s) with nominal sampling dt=sim_dt_s.
-        """
-        t_len = int(density_arr.shape[0])
-        if t_len <= 1:
-            return 0.0
-
-        # Prefer using time coordinate if present and usable (relative to first sample).
-        sim_time = None
-        if time.size == t_len and np.isfinite(time).all():
-            rel = np.asarray(time - float(time[0]), dtype=float)
-            if np.isfinite(rel).all() and float(np.nanmax(rel)) > 0.0:
-                sim_time = rel
-
-        if sim_time is None:
-            expected_steps = int(round(sim_total_time_s / sim_dt_s)) + 1
-            if t_len == expected_steps:
-                sim_time = np.arange(t_len, dtype=float) * sim_dt_s
-            else:
-                sim_time = np.linspace(0.0, sim_total_time_s, t_len, dtype=float)
-
-        denom = max(1, int(frames) - 1)
-        pos = (float(frame_index % frames) / float(denom)) * float(t_len - 1)
-        i0 = int(np.floor(pos))
-        i1 = min(i0 + 1, t_len - 1)
-        w = float(pos - float(i0))
-        t_s = (1.0 - w) * float(sim_time[i0]) + w * float(sim_time[i1])
-
-        # Snap the display to dt=2s increments.
-        if sim_dt_s > 0:
-            t_s = round(t_s / sim_dt_s) * sim_dt_s
-        return float(np.clip(t_s, 0.0, sim_total_time_s))
-
     # Initialize particle rings based on the first profile.
     init_density = density_arr[0]
     init_weights = ring_weights_from_profile(rho, np.asarray(init_density, dtype=float), rings)
@@ -397,16 +345,9 @@ def main() -> None:
             trail_history.clear()
         scat.set_offsets(np.zeros((0, 2)))
         scat.set_facecolors(np.zeros((0, 4), dtype=float))
-        time_text.set_text("t = 0 s")
-        if trail_lc is not None:
-            return (trail_lc, scat, time_text)
-        return (scat, time_text)
+        return (trail_lc, scat) if trail_lc is not None else (scat,)
 
     def update(frame: int):
-        t_s = _sim_time_seconds(int(frame))
-        t_disp = int(round(t_s)) if abs(t_s - round(t_s)) < 1e-9 else t_s
-        time_text.set_text(f"t = {t_disp} s")
-
         prof_density, prof_temp = _interp_profiles(int(frame))
 
         density_rings = ring_weights_from_profile(rho, np.asarray(prof_density, dtype=float), rings)
@@ -426,9 +367,7 @@ def main() -> None:
             if trail_lc is not None:
                 trail_lc.set_segments([])
                 trail_lc.set_color(np.zeros((0, 4), dtype=float))
-            if trail_lc is not None:
-                return (trail_lc, scat, time_text)
-            return (scat, time_text)
+            return (trail_lc, scat) if trail_lc is not None else (scat,)
 
         ring_idx = particle_ring
 
@@ -485,9 +424,7 @@ def main() -> None:
                     trail_lc.set_color(np.zeros((0, 4), dtype=float))
 
         scat.set_facecolors(rgba)
-        if trail_lc is not None:
-            return (trail_lc, scat, time_text)
-        return (scat, time_text)
+        return (trail_lc, scat) if trail_lc is not None else (scat,)
 
     ani = animation.FuncAnimation(fig, update, init_func=init, frames=frames, interval=1000 / args.fps, blit=True)
 
