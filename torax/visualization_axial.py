@@ -100,7 +100,7 @@ def main() -> None:
         help="Major radius (R0): centers the onion layers at (R0, 0).",
     )
 
-    parser.add_argument("--seconds", type=float, default=8.0w)
+    parser.add_argument("--seconds", type=float, default=8.0)
     parser.add_argument("--fps", type=int, default=30)
     args = parser.parse_args()
 
