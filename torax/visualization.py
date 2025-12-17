@@ -151,7 +151,7 @@ def main() -> None:
     parser.add_argument("--r-outer", type=float, default=1.0)
     parser.add_argument("--seconds", type=float, default=8.0)
     parser.add_argument("--fps", type=int, default=30)
-    parser.add_argument("--n-total", type=int, default=100)
+    parser.add_argument("--n-total", type=int, default=500)
     parser.add_argument("--seed", type=int, default=7)
     args = parser.parse_args()
 
@@ -218,6 +218,18 @@ def main() -> None:
     cbar.set_label(str(args.temp_var), color="white")
     cbar.ax.tick_params(colors="white")
     cbar.outline.set_edgecolor("white")
+
+    time_text = ax.text(
+        0.02,
+        0.98,
+        "",
+        transform=ax.transAxes,
+        ha="left",
+        va="top",
+        color="white",
+        fontsize=10,
+        zorder=5,
+    )
     trail_frames = max(0, int(args.trail_frames))
     trail_alpha = float(args.trail_alpha)
 
@@ -345,9 +357,23 @@ def main() -> None:
             trail_history.clear()
         scat.set_offsets(np.zeros((0, 2)))
         scat.set_facecolors(np.zeros((0, 4), dtype=float))
-        return (trail_lc, scat) if trail_lc is not None else (scat,)
+        time_text.set_text("")
+        return (trail_lc, scat, time_text) if trail_lc is not None else (scat, time_text)
 
     def update(frame: int):
+        # Map animation frame -> simulation time (seconds), using the dataset time coordinate when possible.
+        t_len = int(density_arr.shape[0])
+        denom = max(1, int(frames) - 1)
+        pos = (float(int(frame) % frames) / float(denom)) * float(max(0, t_len - 1))
+        i0 = int(np.floor(pos)) if t_len > 0 else 0
+        i1 = min(i0 + 1, max(0, t_len - 1)) if t_len > 0 else 0
+        w = float(pos - float(i0)) if t_len > 1 else 0.0
+
+        t_sim = float(int(frame)) / float(args.fps)
+        if time.size == t_len and t_len > 0 and np.all(np.isfinite(time)):
+            t_sim = float((1.0 - w) * time[i0] + w * time[i1])
+        time_text.set_text(f"t = {t_sim:.3f} s")
+
         prof_density, prof_temp = _interp_profiles(int(frame))
 
         density_rings = ring_weights_from_profile(rho, np.asarray(prof_density, dtype=float), rings)
@@ -367,7 +393,7 @@ def main() -> None:
             if trail_lc is not None:
                 trail_lc.set_segments([])
                 trail_lc.set_color(np.zeros((0, 4), dtype=float))
-            return (trail_lc, scat) if trail_lc is not None else (scat,)
+            return (trail_lc, scat, time_text) if trail_lc is not None else (scat, time_text)
 
         ring_idx = particle_ring
 
@@ -424,7 +450,7 @@ def main() -> None:
                     trail_lc.set_color(np.zeros((0, 4), dtype=float))
 
         scat.set_facecolors(rgba)
-        return (trail_lc, scat) if trail_lc is not None else (scat,)
+        return (trail_lc, scat, time_text) if trail_lc is not None else (scat, time_text)
 
     ani = animation.FuncAnimation(fig, update, init_func=init, frames=frames, interval=1000 / args.fps, blit=True)
 
