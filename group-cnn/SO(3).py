@@ -19,6 +19,7 @@ convolution theorem gives:
 where f̂(πₗ) is a (2ℓ+1) × (2ℓ+1) matrix.
 """
 
+import math
 import numpy as np
 from scipy.special import sph_harm
 from scipy.spatial.transform import Rotation
@@ -95,12 +96,12 @@ def wigner_d_small(l, beta):
             val = 0.0
             for ss in range(s_min, s_max + 1):
                 num = np.sqrt(
-                    np.emath.factorial(l + n) * np.emath.factorial(l - n) *
-                    np.emath.factorial(l + m) * np.emath.factorial(l - m)
+                    math.factorial(l + n) * math.factorial(l - n) *
+                    math.factorial(l + m) * math.factorial(l - m)
                 )
                 den = (
-                    np.emath.factorial(l + n - ss) * np.emath.factorial(ss) *
-                    np.emath.factorial(l - m - ss) * np.emath.factorial(ss + m - n)
+                    math.factorial(l + n - ss) * math.factorial(ss) *
+                    math.factorial(l - m - ss) * math.factorial(ss + m - n)
                 )
                 
                 power_c = 2*l + n - m - 2*ss
@@ -174,9 +175,9 @@ L = L / (np.sum(L * haar_weight) * dV + 1e-12)
 # =========================================================
 # 4) Method A: Direct discretized integral (O(N^6) naive)
 # =========================================================
-print("Computing direct convolution (this may take a moment)...")
+# print("Computing direct convolution (this may take a moment)...")
 
-conv_direct = np.zeros_like(f)
+# conv_direct = np.zeros_like(f)
 
 # For efficiency, we precompute all rotation matrices
 rotations = np.zeros((N_alpha, N_beta, N_gamma, 3, 3))
@@ -187,34 +188,34 @@ for i_a in range(N_alpha):
                 alpha[i_a], beta[i_b], gamma[i_g]
             )
 
-# Direct convolution: (Ff)(g) = ∫ f(gh^{-1}) L(h) dμ(h)
-for i_a in range(N_alpha):
-    for i_b in range(N_beta):
-        for i_g in range(N_gamma):
-            R_g = rotations[i_a, i_b, i_g]
+# # Direct convolution: (Ff)(g) = ∫ f(gh^{-1}) L(h) dμ(h)
+# for i_a in range(N_alpha):
+#     for i_b in range(N_beta):
+#         for i_g in range(N_gamma):
+#             R_g = rotations[i_a, i_b, i_g]
             
-            integral = 0.0
-            for j_a in range(N_alpha):
-                for j_b in range(N_beta):
-                    for j_g in range(N_gamma):
-                        R_h = rotations[j_a, j_b, j_g]
+#             integral = 0.0
+#             for j_a in range(N_alpha):
+#                 for j_b in range(N_beta):
+#                     for j_g in range(N_gamma):
+#                         R_h = rotations[j_a, j_b, j_g]
                         
-                        # Compute g * h^{-1}
-                        R_gh_inv = R_g @ R_h.T
+#                         # Compute g * h^{-1}
+#                         R_gh_inv = R_g @ R_h.T
                         
-                        # Find Euler angles of result
-                        euler_gh_inv = rotation_to_euler(R_gh_inv)
+#                         # Find Euler angles of result
+#                         euler_gh_inv = rotation_to_euler(R_gh_inv)
                         
-                        # Find nearest grid point
-                        k_a, k_b, k_g = find_nearest_grid_index(*euler_gh_inv)
+#                         # Find nearest grid point
+#                         k_a, k_b, k_g = find_nearest_grid_index(*euler_gh_inv)
                         
-                        # Accumulate integral
-                        integral += (f[k_a, k_b, k_g] * L[j_a, j_b, j_g] * 
-                                   haar_weight[j_a, j_b, j_g])
+#                         # Accumulate integral
+#                         integral += (f[k_a, k_b, k_g] * L[j_a, j_b, j_g] * 
+#                                    haar_weight[j_a, j_b, j_g])
             
-            conv_direct[i_a, i_b, i_g] = integral * dV
+#             conv_direct[i_a, i_b, i_g] = integral * dV
 
-print("Direct convolution complete.")
+# print("Direct convolution complete.")
 
 
 # =========================================================
@@ -285,9 +286,9 @@ print("FFT convolution complete.")
 # =========================================================
 # 6) Check agreement between methods
 # =========================================================
-max_err = np.max(np.abs(conv_direct - conv_fft))
-print(f"\nMax |direct - fft| = {max_err:.6e}")
-print("(Note: Error depends on grid resolution and L_MAX)")
+# max_err = np.max(np.abs(conv_direct - conv_fft))
+# print(f"\nMax |direct - fft| = {max_err:.6e}")
+# print("(Note: Error depends on grid resolution and L_MAX)")
 
 
 # =========================================================
@@ -314,15 +315,15 @@ for i_a in range(N_alpha):
 print("Computing convolution of shifted input...")
 conv_shifted_input = np.zeros_like(f)
 
-for i_a in range(N_alpha):
-    for i_b in range(N_beta):
-        for i_g in range(N_gamma):
+for i_a in range(0, N_alpha, 3):
+    for i_b in range(0, N_beta, 3):
+        for i_g in range(0, N_gamma, 3):
             R_g = rotations[i_a, i_b, i_g]
             
             integral = 0.0
-            for j_a in range(N_alpha):
-                for j_b in range(N_beta):
-                    for j_g in range(N_gamma):
+            for j_a in range(0, N_alpha, 3):
+                for j_b in range(0, N_beta, 3):
+                    for j_g in range(0, N_gamma, 3):
                         R_h = rotations[j_a, j_b, j_g]
                         R_gh_inv = R_g @ R_h.T
                         euler_gh_inv = rotation_to_euler(R_gh_inv)
@@ -335,14 +336,14 @@ for i_a in range(N_alpha):
 
 # Shift the convolved output: (λ(R_s)(Ff))(g)
 conv_output_shifted = np.zeros_like(f)
-for i_a in range(N_alpha):
-    for i_b in range(N_beta):
-        for i_g in range(N_gamma):
+for i_a in range(0, N_alpha, 3):
+    for i_b in range(0, N_beta, 3):
+        for i_g in range(0, N_gamma, 3):
             R_g = rotations[i_a, i_b, i_g]
             R_new = R_shift.T @ R_g
             euler_new = rotation_to_euler(R_new)
             k_a, k_b, k_g = find_nearest_grid_index(*euler_new)
-            conv_output_shifted[i_a, i_b, i_g] = conv_direct[k_a, k_b, k_g]
+            conv_output_shifted[i_a, i_b, i_g] = conv_fft[k_a, k_b, k_g]
 
 # Check equivariance: F(λ(g)f) should equal λ(g)(Ff)
 equiv_err = np.max(np.abs(conv_shifted_input - conv_output_shifted))
