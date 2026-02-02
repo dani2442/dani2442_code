@@ -50,17 +50,17 @@ class Metrics:
     @staticmethod
     def fit_percent(y_true: np.ndarray, y_pred: np.ndarray) -> float:
         """
-        MATLAB-style FIT percentage.
+        MATLAB-style FIT (normalized to 0-1 range).
         
-        FIT = 100 * (1 - norm(y-ŷ)/norm(y-mean(y)))
+        FIT = 1 - norm(y-ŷ)/norm(y-mean(y))
         """
         y_true, y_pred = _align_arrays(y_true, y_pred)
         y_mean = np.mean(y_true)
         norm_err = np.linalg.norm(y_true - y_pred)
         norm_ref = np.linalg.norm(y_true - y_mean)
         if norm_ref == 0:
-            return 100.0
-        return float(100 * (1 - norm_err / norm_ref))
+            return 1.0
+        return float(1 - norm_err / norm_ref)
 
     @staticmethod
     def compute_all(

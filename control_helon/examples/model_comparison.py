@@ -75,15 +75,15 @@ def main():
         "RandomForest": RandomForest(nu=nu, ny=ny, n_estimators=50, max_depth=10),
         "NeuralNet": NeuralNetwork(
             nu=nu, ny=ny, hidden_layers=[64, 64, 64],
-            epochs=50, learning_rate=1e-3
+            epochs=100, learning_rate=1e-3
         ),
         "GRU": GRU(
             nu=nu, ny=ny, hidden_size=32, num_layers=2,
-            epochs=30, learning_rate=1e-3
+            epochs=100, learning_rate=1e-3
         ),
         "NeuralODE": NeuralODE(
             state_dim=1, input_dim=1, hidden_layers=[32, 32],
-            epochs=30, dt=0.05, solver="rk4"
+            epochs=100, dt=0.05, solver="rk4"
         ),
     }
     
