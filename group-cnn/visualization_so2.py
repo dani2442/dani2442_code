@@ -8,7 +8,7 @@ Creates a GIF showing that group convolution on SO(2) is equivariant:
 Three panels:
   Left   – rotating input signal
   Centre – static convolution kernel
-  Right  – un-rotated convolution result  (should stay constant)
+  Right  – convolution result (rotates with input, demonstrating equivariance)
 """
 
 import numpy as np
@@ -115,6 +115,12 @@ def create_animation():
                  fontsize=14, fontweight='bold', y=0.98)
     fig.subplots_adjust(top=0.80, bottom=0.08, wspace=0.35)
 
+    # Add * and = symbols between panels
+    fig.text(0.355, 0.45, r'$\ast$', ha='center', va='center',
+             fontsize=28, fontweight='bold')
+    fig.text(0.665, 0.45, r'$=$', ha='center', va='center',
+             fontsize=28, fontweight='bold')
+
     n_frames = 60
     rotation_steps = np.linspace(0, N, n_frames, endpoint=False, dtype=int)
     angle_text = fig.text(0.5, 0.01, 'Rotation: α = 0°',
@@ -123,8 +129,7 @@ def create_animation():
     titles = [
         r'Input: $R_\alpha f$',
         r'Kernel $\psi$',
-        r'Output: $R_\alpha^{-1}(R_\alpha f * \psi)$'
-        '\n(Should match $f * \\psi$)',
+        r'Output: $R_\alpha f * \psi$',
     ]
 
     def setup_axes():
@@ -149,13 +154,12 @@ def create_animation():
         conv_rotated = convolve_so2(f_rotated, L)
         conv_rotated = (conv_rotated - conv_rotated.min()) / \
                        (conv_rotated.max() - conv_rotated.min() + 1e-10)
-        conv_corrected = rotate_signal(conv_rotated, -shift)
 
         ax1.clear(); ax2.clear(); ax3.clear()
 
         plot_signal_on_circle(ax1, f_rotated, theta)
         plot_signal_on_circle(ax2, L_display, theta)
-        plot_signal_on_circle(ax3, conv_corrected, theta)
+        plot_signal_on_circle(ax3, conv_rotated, theta)
         setup_axes()
 
         angle_text.set_text(f'Rotation: α = {rotation_angle:.0f}°')

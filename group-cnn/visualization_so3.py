@@ -10,7 +10,7 @@ with rotations:
 Three panels:
   Left   – rotating input signal on the sphere
   Centre – static (zonal) kernel on the sphere
-  Right  – un-rotated output (should stay constant)
+  Right  – convolution result (rotates with input, demonstrating equivariance)
 
 Implementation notes:
   - The convolution is a *zonal* (isotropic) spherical filter implemented in
@@ -252,6 +252,7 @@ angles = np.linspace(0.0, 2 * np.pi, N_FRAMES, endpoint=False)
 rotations = [Rotation.from_rotvec(a * ROTATION_AXIS) for a in angles]
 
 f_rotated_frames: list[np.ndarray] = []
+conv_rotated_frames: list[np.ndarray] = []
 max_coeff_err = 0.0
 
 for angle, rot in zip(angles, rotations):
@@ -268,8 +269,12 @@ for angle, rot in zip(angles, rotations):
     f_rot = sht_inverse(f_rot_coeffs)
     f_rotated_frames.append(np.clip(f_rot, 0.0, 1.0))
 
-    # Sanity check: D† (λ D f̂) ≈ λ f̂
+    # Compute convolution of rotated signal (without un-rotation)
     conv_rot_coeffs = {l: lambdas[l] * f_rot_coeffs[l] for l in range(L_MAX + 1)}
+    conv_rot = sht_inverse(conv_rot_coeffs)
+    conv_rotated_frames.append(normalize_01(np.clip(conv_rot, conv_rot.min(), conv_rot.max())))
+
+    # Sanity check: D† (λ D f̂) ≈ λ f̂
     conv_corr_coeffs = {l: (D_l[l].conj().T @ conv_rot_coeffs[l]) for l in range(L_MAX + 1)}
     for l in range(L_MAX + 1):
         max_coeff_err = max(max_coeff_err, float(np.max(np.abs(conv_corr_coeffs[l] - conv_coeffs[l]))))
@@ -325,14 +330,20 @@ def create_animation() -> tuple[plt.Figure, FuncAnimation]:
     fig.suptitle("SO(3) Equivariance on the Sphere (zonal filter)", fontsize=14, fontweight="bold", y=0.95)
     fig.subplots_adjust(top=0.88, bottom=0.08, wspace=0.05)
 
+    # Add * and = symbols between panels
+    fig.text(0.355, 0.48, r'$\ast$', ha='center', va='center',
+             fontsize=28, fontweight='bold')
+    fig.text(0.665, 0.48, r'$=$', ha='center', va='center',
+             fontsize=28, fontweight='bold')
+
     angle_text = fig.text(0.5, 0.02, "Rotation angle = 0°", ha="center", fontsize=11)
 
     def update(frame: int):
         angle = angles[frame]
 
-        plot_sphere_with_terrain(ax1, f_rotated_frames[frame], r"Input: $f(R^{-1}\!\cdot\!x)$")
-        plot_sphere_with_terrain(ax2, kernel_display, r"Kernel $\psi$ (static)")
-        plot_sphere_with_terrain(ax3, conv_display, r"$R^{-1}(R f \star \psi)$  (static)")
+        plot_sphere_with_terrain(ax1, f_rotated_frames[frame], r"Input: $R f$")
+        plot_sphere_with_terrain(ax2, kernel_display, r"Kernel $\psi$")
+        plot_sphere_with_terrain(ax3, conv_rotated_frames[frame], r"Output: $R f \star \psi$")
 
         angle_text.set_text(f"Rotation angle = {np.degrees(angle):.0f}°")
         return []
