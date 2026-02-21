@@ -1,88 +1,57 @@
 """
-SO(3) Group Convolution Example
-================================
+SO(3) Group Convolution (Peter–Weyl / Wigner D-matrices)
+========================================================
 
-This module demonstrates group convolution on SO(3) using:
-- Direct discretized integral (O(N^3) for grid points)
-- Fourier / Peter-Weyl approach using Wigner D-matrices
+This script demonstrates *left-equivariant* group convolution on SO(3):
 
-The convolution formula on SO(3):
-    (Ff)(g) = ∫_{SO(3)} f(gh^{-1}) L(h) dμ(h)
+  (f ⋆ L)(g) = ∫_{SO(3)} f(g h⁻¹) L(h) dμ(h)
 
-Using Euler angles (α, β, γ):
-    dμ = (1/8π²) sin(β) dα dβ dγ
+with normalized Haar measure dμ. Using ZYZ Euler angles (α, β, γ):
 
-The Fourier transform uses Wigner D-matrices D^ℓ_{mn}(g), and the
-convolution theorem gives:
-    F̂f(πₗ) = f̂(πₗ) · L̂(πₗ)
+  dμ = (1 / 8π²) sin(β) dα dβ dγ
 
-where f̂(πₗ) is a (2ℓ+1) × (2ℓ+1) matrix.
+We compute Fourier (Peter–Weyl) coefficients using Wigner D-matrices:
+
+  f̂^ℓ = ∫ f(g) D^ℓ(g)† dμ(g)   (a (2ℓ+1)×(2ℓ+1) matrix)
+
+and the convolution theorem for the convention above is:
+
+  (f ⋆ L)̂^ℓ = L̂^ℓ  f̂^ℓ    (note the order!)
+
+Everything is computed on a tensor-product Euler grid and truncated to ℓ ≤ L_MAX,
+so results are approximate unless the sampled functions are band-limited.
 """
 
 import math
+
 import numpy as np
-from scipy.special import sph_harm
 from scipy.spatial.transform import Rotation
 
 # =========================================================
-# 1) Discretization of SO(3) via Euler angles
+# Configuration
 # =========================================================
 
-N_alpha = 16   # Grid points for α ∈ [0, 2π)
-N_beta = 8     # Grid points for β ∈ [0, π]
-N_gamma = 16   # Grid points for γ ∈ [0, 2π)
+N_ALPHA = 16
+N_BETA = 8
+N_GAMMA = 16
 
-alpha = np.linspace(0, 2*np.pi, N_alpha, endpoint=False)
-beta = np.linspace(0, np.pi, N_beta, endpoint=False) + np.pi/(2*N_beta)  # Avoid poles
-gamma = np.linspace(0, 2*np.pi, N_gamma, endpoint=False)
+L_MAX = 4
 
-d_alpha = 2 * np.pi / N_alpha
-d_beta = np.pi / N_beta
-d_gamma = 2 * np.pi / N_gamma
-
-# Create meshgrid for Euler angles
-Alpha, Beta, Gamma = np.meshgrid(alpha, beta, gamma, indexing='ij')
-
-# Haar measure weight: (1/8π²) sin(β)
-haar_weight = np.sin(Beta) / (8 * np.pi**2)
-dV = d_alpha * d_beta * d_gamma  # Volume element
+# A fixed left-translation used for the equivariance check.
+SHIFT_EULER_ZYZ = (np.pi / 3, np.pi / 4, np.pi / 6)
 
 
 # =========================================================
-# 2) Helper functions for SO(3) operations
+# Wigner D-matrices (ZYZ convention)
 # =========================================================
 
-def euler_to_rotation(a, b, g):
-    """Convert Euler angles (ZYZ convention) to rotation matrix."""
-    return Rotation.from_euler('ZYZ', [a, b, g]).as_matrix()
-
-
-def rotation_to_euler(R):
-    """Convert rotation matrix to Euler angles (ZYZ convention)."""
-    return Rotation.from_matrix(R).as_euler('ZYZ')
-
-
-def find_nearest_grid_index(a, b, g):
-    """Find the nearest grid indices for given Euler angles."""
-    # Wrap angles to proper ranges
-    a = a % (2 * np.pi)
-    g = g % (2 * np.pi)
-    b = np.clip(b, 0, np.pi)
-    
-    i_a = int(np.round(a / d_alpha)) % N_alpha
-    i_b = int(np.clip(np.round((b - np.pi/(2*N_beta)) / d_beta), 0, N_beta - 1))
-    i_g = int(np.round(g / d_gamma)) % N_gamma
-    
-    return i_a, i_b, i_g
-
-
-def wigner_d_small(l, beta):
+def wigner_d_small(l: int, beta: float) -> np.ndarray:
     """
     Compute the small Wigner d-matrix d^l_{m,n}(β) for all m,n in [-l, l].
-    Uses the formula involving Jacobi polynomials / direct recursion.
+    Uses the standard closed-form summation formula (suitable for small ℓ).
     Returns a (2l+1, 2l+1) matrix.
     """
-    d = np.zeros((2*l + 1, 2*l + 1), dtype=np.float64)
+    d = np.zeros((2 * l + 1, 2 * l + 1), dtype=np.float64)
     
     c = np.cos(beta / 2)
     s = np.sin(beta / 2)
@@ -95,27 +64,33 @@ def wigner_d_small(l, beta):
             
             val = 0.0
             for ss in range(s_min, s_max + 1):
-                num = np.sqrt(
-                    math.factorial(l + n) * math.factorial(l - n) *
-                    math.factorial(l + m) * math.factorial(l - m)
+                # Use log-factorials (via lgamma) to avoid huge Python ints that
+                # break `np.sqrt` for n >= 21 and to improve numeric stability.
+                log_num = 0.5 * (
+                    math.lgamma(l + n + 1)
+                    + math.lgamma(l - n + 1)
+                    + math.lgamma(l + m + 1)
+                    + math.lgamma(l - m + 1)
                 )
-                den = (
-                    math.factorial(l + n - ss) * math.factorial(ss) *
-                    math.factorial(l - m - ss) * math.factorial(ss + m - n)
+                log_den = (
+                    math.lgamma(l + n - ss + 1)
+                    + math.lgamma(ss + 1)
+                    + math.lgamma(l - m - ss + 1)
+                    + math.lgamma(ss + m - n + 1)
                 )
                 
-                power_c = 2*l + n - m - 2*ss
-                power_s = 2*ss + m - n
+                power_c = 2 * l + n - m - 2 * ss
+                power_s = 2 * ss + m - n
                 
-                sign = (-1)**(ss + m - n)
-                val += sign * (num / den) * (c**power_c) * (s**power_s)
+                sign = (-1) ** (ss + m - n)
+                val += sign * math.exp(log_num - log_den) * (c ** power_c) * (s ** power_s)
             
             d[m + l, n + l] = val
     
     return d
 
 
-def wigner_D_matrix(l, alpha, beta, gamma):
+def wigner_D_matrix(l: int, alpha: float, beta: float, gamma: float) -> np.ndarray:
     """
     Compute the Wigner D-matrix D^l_{m,n}(α, β, γ) for all m,n in [-l, l].
     
@@ -137,215 +112,202 @@ def wigner_D_matrix(l, alpha, beta, gamma):
 
 
 # =========================================================
-# 3) Define signal and kernel on SO(3)
+# Grid + quadrature weights (midpoint rule in β to avoid poles)
 # =========================================================
 
-def create_signal(Alpha, Beta, Gamma):
+def make_euler_zyz_grid(
+    n_alpha: int, n_beta: int, n_gamma: int
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    alpha = np.linspace(0.0, 2 * np.pi, n_alpha, endpoint=False)
+    beta = (np.arange(n_beta) + 0.5) * (np.pi / n_beta)
+    gamma = np.linspace(0.0, 2 * np.pi, n_gamma, endpoint=False)
+
+    d_alpha = 2 * np.pi / n_alpha
+    d_beta = np.pi / n_beta
+    d_gamma = 2 * np.pi / n_gamma
+
+    Alpha, Beta, Gamma = np.meshgrid(alpha, beta, gamma, indexing="ij")
+    weights = (np.sin(Beta) / (8 * np.pi**2)) * (d_alpha * d_beta * d_gamma)
+
+    angles = np.stack([Alpha.ravel(), Beta.ravel(), Gamma.ravel()], axis=1)
+    rotations = Rotation.from_euler("ZYZ", angles).as_matrix()
+    rotations = rotations.reshape(n_alpha, n_beta, n_gamma, 3, 3)
+
+    return alpha, beta, gamma, weights, rotations
+
+
+def precompute_wigner_D_grid(
+    alpha: np.ndarray, beta: np.ndarray, gamma: np.ndarray, l_max: int
+) -> dict[int, np.ndarray]:
     """
-    Create a band-limited signal on SO(3).
-    We use a combination of low-order spherical harmonic-like functions.
+    Precompute D^l(α_i, β_j, γ_k) on the Euler tensor grid for all l ≤ l_max.
+
+    Returns a dict: l -> array of shape (Nα, Nβ, Nγ, 2l+1, 2l+1).
     """
-    # Simple signal based on Euler angles
-    f = (np.sin(2 * Beta) * np.cos(Alpha) + 
-         0.5 * np.cos(Beta) * np.sin(2 * Gamma) +
-         0.3 * np.sin(Alpha + Gamma))
-    return f
+    D_grid: dict[int, np.ndarray] = {}
+    for l in range(l_max + 1):
+        m_vals = np.arange(-l, l + 1)
+        n_vals = np.arange(-l, l + 1)
+
+        phase_alpha = np.exp(-1j * alpha[:, None] * m_vals[None, :])  # (Nα, 2l+1)
+        phase_gamma = np.exp(-1j * gamma[:, None] * n_vals[None, :])  # (Nγ, 2l+1)
+
+        d_beta = np.stack([wigner_d_small(l, b) for b in beta], axis=0)  # (Nβ, 2l+1, 2l+1)
+
+        D = (
+            phase_alpha[:, None, None, :, None]
+            * d_beta[None, :, None, :, :]
+            * phase_gamma[None, None, :, None, :]
+        )
+        D_grid[l] = D
+
+    return D_grid
 
 
-def create_kernel(Alpha, Beta, Gamma, sigma=0.5):
+def fourier_coefficients_from_samples(
+    samples: np.ndarray, D_grid: dict[int, np.ndarray], weights: np.ndarray
+) -> dict[int, np.ndarray]:
     """
-    Create a localized kernel on SO(3).
-    A Gaussian-like bump centered at the identity (α=0, β=0, γ=0).
+    Compute Fourier coefficients for f given samples f(α_i, β_j, γ_k).
+
+      f̂^l = ∫ f(g) D^l(g)† dμ(g)
     """
-    # Distance from identity in terms of rotation angle
-    # For small angles, β is the main contributor
-    dist_sq = Beta**2 + 0.5 * (Alpha**2 + Gamma**2) * (1 - np.cos(Beta))
-    L = np.exp(-dist_sq / (2 * sigma**2))
-    return L
+    coeffs: dict[int, np.ndarray] = {}
+    for l, D in D_grid.items():
+        D_dag = np.conj(D).swapaxes(-1, -2)  # D(g)† = D(g^{-1})
+        coeffs[l] = np.einsum("abg,abgmn,abg->mn", samples, D_dag, weights, optimize=True)
+    return coeffs
 
 
-# Create signal and kernel
-f = create_signal(Alpha, Beta, Gamma)
-L = create_kernel(Alpha, Beta, Gamma, sigma=0.5)
-
-# Normalize kernel
-L = L / (np.sum(L * haar_weight) * dV + 1e-12)
-
-
-# =========================================================
-# 4) Method A: Direct discretized integral (O(N^6) naive)
-# =========================================================
-# print("Computing direct convolution (this may take a moment)...")
-
-# conv_direct = np.zeros_like(f)
-
-# For efficiency, we precompute all rotation matrices
-rotations = np.zeros((N_alpha, N_beta, N_gamma, 3, 3))
-for i_a in range(N_alpha):
-    for i_b in range(N_beta):
-        for i_g in range(N_gamma):
-            rotations[i_a, i_b, i_g] = euler_to_rotation(
-                alpha[i_a], beta[i_b], gamma[i_g]
-            )
-
-# # Direct convolution: (Ff)(g) = ∫ f(gh^{-1}) L(h) dμ(h)
-# for i_a in range(N_alpha):
-#     for i_b in range(N_beta):
-#         for i_g in range(N_gamma):
-#             R_g = rotations[i_a, i_b, i_g]
-            
-#             integral = 0.0
-#             for j_a in range(N_alpha):
-#                 for j_b in range(N_beta):
-#                     for j_g in range(N_gamma):
-#                         R_h = rotations[j_a, j_b, j_g]
-                        
-#                         # Compute g * h^{-1}
-#                         R_gh_inv = R_g @ R_h.T
-                        
-#                         # Find Euler angles of result
-#                         euler_gh_inv = rotation_to_euler(R_gh_inv)
-                        
-#                         # Find nearest grid point
-#                         k_a, k_b, k_g = find_nearest_grid_index(*euler_gh_inv)
-                        
-#                         # Accumulate integral
-#                         integral += (f[k_a, k_b, k_g] * L[j_a, j_b, j_g] * 
-#                                    haar_weight[j_a, j_b, j_g])
-            
-#             conv_direct[i_a, i_b, i_g] = integral * dV
-
-# print("Direct convolution complete.")
-
-
-# =========================================================
-# 5) Method B: Fourier / Peter-Weyl using Wigner D-matrices
-# =========================================================
-print("Computing FFT-based convolution...")
-
-L_MAX = 4  # Maximum ℓ for the expansion (determines accuracy)
-
-def compute_fourier_coefficient(func, l):
+def inverse_fourier_on_grid(
+    coeffs: dict[int, np.ndarray], D_grid: dict[int, np.ndarray], l_max: int
+) -> np.ndarray:
     """
-    Compute the Fourier coefficient f̂(πₗ), a (2l+1) × (2l+1) matrix.
-    
-    f̂(πₗ)_{mn} = ∫_{SO(3)} f(g) D^l_{mn}(g^{-1}) dμ(g)
-                = ∫_{SO(3)} f(g) conj(D^l_{nm}(g)) dμ(g)
+    Inverse Peter–Weyl transform on the Euler grid:
+
+      f(g) = Σ_{l=0..L_MAX} (2l+1) Tr[ f̂^l D^l(g) ].
     """
-    f_hat = np.zeros((2*l + 1, 2*l + 1), dtype=np.complex128)
-    
-    for i_a in range(N_alpha):
-        for i_b in range(N_beta):
-            for i_g in range(N_gamma):
-                D = wigner_D_matrix(l, alpha[i_a], beta[i_b], gamma[i_g])
-                weight = haar_weight[i_a, i_b, i_g] * dV
-                
-                # f̂_{mn} = ∫ f(g) conj(D^l_{nm}(g)) dμ
-                f_hat += func[i_a, i_b, i_g] * np.conj(D.T) * weight
-    
-    return f_hat
+    shape = next(iter(D_grid.values())).shape[:3]
+    out = np.zeros(shape, dtype=np.complex128)
+    for l in range(l_max + 1):
+        D = D_grid[l]
+        out += (2 * l + 1) * np.einsum("mn,abgnm->abg", coeffs[l], D.swapaxes(-1, -2), optimize=True)
+    return out.real
 
 
-def inverse_fourier(f_hats, L_max):
+# =========================================================
+# Example signal + kernel (defined directly on rotation matrices)
+# =========================================================
+
+def rotation_angle(rotations: np.ndarray) -> np.ndarray:
+    """Geodesic rotation angle in [0, π] from a rotation matrix."""
+    tr = np.trace(rotations, axis1=-2, axis2=-1)
+    cos_angle = np.clip((tr - 1.0) / 2.0, -1.0, 1.0)
+    return np.arccos(cos_angle)
+
+
+def create_signal(rotations: np.ndarray) -> np.ndarray:
     """
-    Reconstruct function from Fourier coefficients using Peter-Weyl:
-    f(g) = Σ_ℓ (2ℓ+1) Tr[f̂(πₗ) D^ℓ(g)]
+    A smooth, asymmetric signal on SO(3).
+
+    Defined in a coordinate-free way via the rotation matrix entries so it can be
+    evaluated at any group element without Euler-angle singularities.
     """
-    result = np.zeros((N_alpha, N_beta, N_gamma), dtype=np.complex128)
-    
-    for i_a in range(N_alpha):
-        for i_b in range(N_beta):
-            for i_g in range(N_gamma):
-                val = 0.0
-                for l in range(L_max + 1):
-                    D = wigner_D_matrix(l, alpha[i_a], beta[i_b], gamma[i_g])
-                    val += (2*l + 1) * np.trace(f_hats[l] @ D)
-                result[i_a, i_b, i_g] = val
-    
-    return result.real
+    # Columns are the images of the basis vectors under the rotation.
+    x_axis = rotations[..., :, 0]
+    y_axis = rotations[..., :, 1]
+    z_axis = rotations[..., :, 2]
+
+    return (
+        0.8 * z_axis[..., 0]
+        + 0.4 * x_axis[..., 1]
+        - 0.3 * y_axis[..., 0]
+        + 0.2 * (z_axis[..., 2] ** 3)
+    )
 
 
-# Compute Fourier coefficients
-f_hats = {}
-L_hats = {}
-for l in range(L_MAX + 1):
-    f_hats[l] = compute_fourier_coefficient(f, l)
-    L_hats[l] = compute_fourier_coefficient(L, l)
+def create_kernel(rotations: np.ndarray, sigma: float = 0.6) -> np.ndarray:
+    """
+    A localized (but not conjugation-invariant) kernel around the identity.
 
-# Convolution in Fourier domain: (Ff)^ = f̂ · L̂
-conv_hats = {}
-for l in range(L_MAX + 1):
-    conv_hats[l] = f_hats[l] @ L_hats[l]
+    The isotropic part depends on the rotation angle, and we add a small
+    anisotropic factor so that equivariance requires the correct multiplication
+    order in Fourier space.
+    """
+    ang = rotation_angle(rotations)
+    isotropic = np.exp(-(ang**2) / (2 * sigma**2))
+    anisotropic = 1.0 + 0.4 * rotations[..., 0, 0]  # stays positive in [0.6, 1.4]
+    return isotropic * anisotropic
 
-# Inverse transform
-conv_fft = inverse_fourier(conv_hats, L_MAX)
 
-print("FFT convolution complete.")
+def normalize_kernel(kernel: np.ndarray, weights: np.ndarray) -> np.ndarray:
+    """Normalize so ∫ L(h) dμ(h) ≈ 1 under the discrete quadrature."""
+    return kernel / (np.sum(kernel * weights) + 1e-12)
+
+
+def spectral_convolution(
+    f_coeffs: dict[int, np.ndarray], L_coeffs: dict[int, np.ndarray]
+) -> dict[int, np.ndarray]:
+    """(f ⋆ L)̂^l = L̂^l f̂^l for the convention used in this file."""
+    return {l: (L_coeffs[l] @ f_coeffs[l]) for l in f_coeffs}
 
 
 # =========================================================
-# 6) Check agreement between methods
+# Main
 # =========================================================
-# max_err = np.max(np.abs(conv_direct - conv_fft))
-# print(f"\nMax |direct - fft| = {max_err:.6e}")
-# print("(Note: Error depends on grid resolution and L_MAX)")
+
+def main() -> None:
+    alpha, beta, gamma, weights, rotations = make_euler_zyz_grid(N_ALPHA, N_BETA, N_GAMMA)
+
+    f = create_signal(rotations)
+    L = normalize_kernel(create_kernel(rotations, sigma=0.6), weights)
+
+    D_grid = precompute_wigner_D_grid(alpha, beta, gamma, L_MAX)
+
+    print("Computing spectral convolution on SO(3)...")
+    f_hats = fourier_coefficients_from_samples(f, D_grid, weights)
+    L_hats = fourier_coefficients_from_samples(L, D_grid, weights)
+
+    conv_hats = spectral_convolution(f_hats, L_hats)
+    conv = inverse_fourier_on_grid(conv_hats, D_grid, L_MAX)
+    print("Done.")
+
+    # -----------------------------------------------------
+    # Equivariance check (left translations)
+    # -----------------------------------------------------
+    print("\n--- Equivariance Check (left translation) ---")
+    R_shift = Rotation.from_euler("ZYZ", SHIFT_EULER_ZYZ).as_matrix()
+
+    # f_shifted(g) = f(R_shift^{-1} g) sampled on the same Euler grid.
+    rotations_flat = rotations.reshape(-1, 3, 3)
+    rotations_shifted = np.einsum("ij,pjk->pik", R_shift.T, rotations_flat, optimize=True)
+    rotations_shifted = rotations_shifted.reshape(rotations.shape)
+    f_shifted = create_signal(rotations_shifted)
+
+    # Convolve shifted input
+    f_shifted_hats = fourier_coefficients_from_samples(f_shifted, D_grid, weights)
+    conv_shifted_input_hats = spectral_convolution(f_shifted_hats, L_hats)
+    conv_shifted_input = inverse_fourier_on_grid(conv_shifted_input_hats, D_grid, L_MAX)
+
+    # Shift the convolved output using the *representation* action on coefficients.
+    D_shift_inv = {
+        l: np.conj(wigner_D_matrix(l, *SHIFT_EULER_ZYZ)).T for l in range(L_MAX + 1)
+    }
+    conv_shifted_output_hats = {l: (conv_hats[l] @ D_shift_inv[l]) for l in range(L_MAX + 1)}
+    conv_shifted_output = inverse_fourier_on_grid(conv_shifted_output_hats, D_grid, L_MAX)
+
+    equiv_err = float(np.max(np.abs(conv_shifted_input - conv_shifted_output)))
+    scale = float(np.max(np.abs(conv)) + 1e-12)
+    print(f"Max equivariance error = {equiv_err:.3e}")
+    print(f"Relative error (scaled by max |output|) = {(equiv_err / scale):.3e}")
+
+    # Also show how well the discrete quadrature captures the Fourier translation rule.
+    hat_errs = []
+    for l in range(L_MAX + 1):
+        predicted = f_hats[l] @ D_shift_inv[l]
+        hat_errs.append(np.max(np.abs(f_shifted_hats[l] - predicted)))
+    print(f"Max Fourier translation error over ℓ≤{L_MAX} = {max(hat_errs):.3e}")
 
 
-# =========================================================
-# 7) Equivariance check
-# =========================================================
-print("\n--- Equivariance Check ---")
-
-# Define a rotation to apply (a shift in SO(3))
-shift_euler = (np.pi/3, np.pi/4, np.pi/6)  # (α_s, β_s, γ_s)
-R_shift = euler_to_rotation(*shift_euler)
-
-# Create shifted input: (λ(R_s)f)(g) = f(R_s^{-1} g)
-f_shifted = np.zeros_like(f)
-for i_a in range(N_alpha):
-    for i_b in range(N_beta):
-        for i_g in range(N_gamma):
-            R_g = rotations[i_a, i_b, i_g]
-            R_new = R_shift.T @ R_g  # R_s^{-1} * g
-            euler_new = rotation_to_euler(R_new)
-            k_a, k_b, k_g = find_nearest_grid_index(*euler_new)
-            f_shifted[i_a, i_b, i_g] = f[k_a, k_b, k_g]
-
-# Convolve shifted input
-print("Computing convolution of shifted input...")
-conv_shifted_input = np.zeros_like(f)
-
-for i_a in range(0, N_alpha, 3):
-    for i_b in range(0, N_beta, 3):
-        for i_g in range(0, N_gamma, 3):
-            R_g = rotations[i_a, i_b, i_g]
-            
-            integral = 0.0
-            for j_a in range(0, N_alpha, 3):
-                for j_b in range(0, N_beta, 3):
-                    for j_g in range(0, N_gamma, 3):
-                        R_h = rotations[j_a, j_b, j_g]
-                        R_gh_inv = R_g @ R_h.T
-                        euler_gh_inv = rotation_to_euler(R_gh_inv)
-                        k_a, k_b, k_g = find_nearest_grid_index(*euler_gh_inv)
-                        
-                        integral += (f_shifted[k_a, k_b, k_g] * L[j_a, j_b, j_g] * 
-                                   haar_weight[j_a, j_b, j_g])
-            
-            conv_shifted_input[i_a, i_b, i_g] = integral * dV
-
-# Shift the convolved output: (λ(R_s)(Ff))(g)
-conv_output_shifted = np.zeros_like(f)
-for i_a in range(0, N_alpha, 3):
-    for i_b in range(0, N_beta, 3):
-        for i_g in range(0, N_gamma, 3):
-            R_g = rotations[i_a, i_b, i_g]
-            R_new = R_shift.T @ R_g
-            euler_new = rotation_to_euler(R_new)
-            k_a, k_b, k_g = find_nearest_grid_index(*euler_new)
-            conv_output_shifted[i_a, i_b, i_g] = conv_fft[k_a, k_b, k_g]
-
-# Check equivariance: F(λ(g)f) should equal λ(g)(Ff)
-equiv_err = np.max(np.abs(conv_shifted_input - conv_output_shifted))
-print(f"Equivariance error = {equiv_err:.6e}")
-print("(Error is due to discretization; decreases with finer grids)")
+if __name__ == "__main__":
+    main()

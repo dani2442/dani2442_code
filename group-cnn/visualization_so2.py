@@ -3,18 +3,17 @@ SO(2) Equivariance Visualization
 =================================
 
 Creates a GIF showing that group convolution on SO(2) is equivariant:
-- Left: A rotating signal on the circle
-- Right: The convolution result with rotation correction (should be static)
+  rotate(f) * kernel = rotate(output)
 
-This demonstrates that rotating the input, then convolving, gives the same
-result as convolving first, then rotating the output.
+Three panels:
+  Left   – rotating input signal
+  Centre – static convolution kernel
+  Right  – un-rotated convolution result  (should stay constant)
 """
 
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, PillowWriter
-from matplotlib.patches import Circle
-from matplotlib.collections import LineCollection
 
 # =========================================================
 # Setup SO(2) discretization
@@ -24,22 +23,45 @@ N = 64
 theta = np.linspace(0, 2 * np.pi, N, endpoint=False)
 dtheta = 2 * np.pi / N
 
-# Create a signal on the circle (asymmetric for visual clarity)
-f_original = np.sin(theta) + 0.5 * np.sin(2 * theta) + 0.3 * np.cos(3 * theta)
-f_original = f_original - f_original.min()  # Make positive
-f_original = f_original / f_original.max()  # Normalize to [0, 1]
 
-# Create a localized kernel (Gaussian-like bump)
+# =========================================================
+# 1-D periodic Perlin-like noise
+# =========================================================
+
+def perlin_noise_1d(n, octaves=5, seed=42):
+    """Generate 1-D periodic Perlin-like noise (fBm) on a circle."""
+    rng = np.random.default_rng(seed)
+    result = np.zeros(n)
+    for o in range(octaves):
+        freq = 2 ** (o + 1)
+        amp = 0.5 ** o
+        gradients = rng.uniform(-1, 1, freq)
+
+        x = np.linspace(0, freq, n, endpoint=False)
+        xi = np.floor(x).astype(int) % freq
+        xf = x - np.floor(x)
+
+        u = xf * xf * xf * (xf * (xf * 6 - 15) + 10)
+        result += amp * ((1 - u) * gradients[xi] + u * gradients[(xi + 1) % freq])
+    return result
+
+
+# ------ signals ------
+f_original = perlin_noise_1d(N, octaves=5, seed=42)
+f_original = (f_original - f_original.min()) / (f_original.max() - f_original.min())
+
+# Localised kernel (Gaussian-like bump)
 L = np.exp(-0.5 * (((theta + np.pi) % (2 * np.pi) - np.pi) / 0.3) ** 2)
-L = L / (np.sum(L) * dtheta / (2 * np.pi))  # Normalize
+L = L / (np.sum(L) * dtheta / (2 * np.pi))
+# Normalise kernel to [0, 1] for display
+L_display = (L - L.min()) / (L.max() - L.min())
 
 
 def convolve_so2(f, L):
     """Compute group convolution on SO(2) using FFT."""
     f_hat = np.fft.fft(f)
     L_hat = np.fft.fft(L)
-    conv = np.fft.ifft(f_hat * L_hat).real * dtheta / (2 * np.pi)
-    return conv
+    return np.fft.ifft(f_hat * L_hat).real * dtheta / (2 * np.pi)
 
 
 def rotate_signal(f, shift_steps):
@@ -47,52 +69,38 @@ def rotate_signal(f, shift_steps):
     return np.roll(f, shift_steps)
 
 
-# Compute convolution of original signal
 conv_original = convolve_so2(f_original, L)
-conv_original = conv_original - conv_original.min()
-conv_original = conv_original / conv_original.max()
+conv_original = (conv_original - conv_original.min()) / \
+                (conv_original.max() - conv_original.min())
 
 
 # =========================================================
-# Visualization functions
+# Visualization helpers
 # =========================================================
 
 def signal_to_radius(signal, base_radius=1.0, amplitude=0.3):
-    """Convert signal values to radii for polar plot."""
     return base_radius + amplitude * (signal - 0.5)
 
 
-def create_figure():
-    """Create the figure with two polar subplots."""
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5), 
-                                    subplot_kw={'projection': 'polar'})
-    
-    fig.suptitle('SO(2) Group Convolution Equivariance', fontsize=14, fontweight='bold')
-    
-    ax1.set_title('Input: Rotating Signal f(θ - α)', fontsize=11)
-    ax2.set_title('Output: Conv(Rotated f) with Rotation Correction\n(Should be static)', fontsize=11)
-    
-    for ax in [ax1, ax2]:
-        ax.set_ylim(0, 1.5)
-        ax.set_yticklabels([])
-        ax.grid(True, alpha=0.3)
-    
-    return fig, ax1, ax2
+TERRAIN_CMAP = plt.colormaps.get_cmap('terrain')
 
 
-def plot_signal_on_circle(ax, signal, theta, color='blue', label=None):
-    """Plot a signal as a filled polar curve."""
+def plot_signal_on_circle(ax, signal, theta_arr):
+    """Plot a signal as terrain-coloured bars in polar coordinates."""
     radii = signal_to_radius(signal)
-    
-    # Close the curve
-    theta_closed = np.append(theta, theta[0])
+    base = 0
+
+    sig_norm = (signal - signal.min()) / (signal.max() - signal.min() + 1e-10)
+    colors = TERRAIN_CMAP(0.25 + 0.6 * sig_norm)
+
+    ax.bar(theta_arr, radii - base, bottom=base, width=dtheta * 1.05,
+           color=colors, alpha=0.9, edgecolor='none')
+
+    theta_closed = np.append(theta_arr, theta_arr[0])
     radii_closed = np.append(radii, radii[0])
-    
-    # Plot
-    line, = ax.plot(theta_closed, radii_closed, color=color, linewidth=2, label=label)
-    fill = ax.fill(theta_closed, radii_closed, color=color, alpha=0.3)
-    
-    return line, fill
+    ax.plot(theta_closed, radii_closed, color='#2a2a2a', linewidth=0.8)
+    ax.plot(theta_closed, np.full_like(theta_closed, 1.0),
+            color='gray', linestyle='--', alpha=0.4, linewidth=0.5)
 
 
 # =========================================================
@@ -100,69 +108,61 @@ def plot_signal_on_circle(ax, signal, theta, color='blue', label=None):
 # =========================================================
 
 def create_animation():
-    """Create the equivariance demonstration animation."""
-    fig, ax1, ax2 = create_figure()
-    
+    fig, (ax1, ax2, ax3) = plt.subplots(
+        1, 3, figsize=(16, 5), subplot_kw={'projection': 'polar'})
+
+    fig.suptitle('SO(2) Group Convolution Equivariance',
+                 fontsize=14, fontweight='bold', y=0.98)
+    fig.subplots_adjust(top=0.80, bottom=0.08, wspace=0.35)
+
     n_frames = 60
     rotation_steps = np.linspace(0, N, n_frames, endpoint=False, dtype=int)
-    
-    # Initial plot elements
-    line1, fill1 = plot_signal_on_circle(ax1, f_original, theta, color='#2E86AB')
-    line2, fill2 = plot_signal_on_circle(ax2, conv_original, theta, color='#A23B72')
-    
-    # Reference circle
-    ref_circle1 = plt.Circle((0, 0), 1.0, transform=ax1.transData + ax1.transProjectionAffine + ax1.transAxes,
-                              fill=False, color='gray', linestyle='--', alpha=0.5)
-    ref_circle2 = plt.Circle((0, 0), 1.0, transform=ax2.transData + ax2.transProjectionAffine + ax2.transAxes,
-                              fill=False, color='gray', linestyle='--', alpha=0.5)
-    
-    # Add rotation angle text
-    angle_text = fig.text(0.5, 0.02, 'Rotation: α = 0°', ha='center', fontsize=11)
-    
+    angle_text = fig.text(0.5, 0.01, 'Rotation: α = 0°',
+                          ha='center', fontsize=11)
+
+    titles = [
+        r'Input: $R_\alpha f$',
+        r'Kernel $\psi$',
+        r'Output: $R_\alpha^{-1}(R_\alpha f * \psi)$'
+        '\n(Should match $f * \\psi$)',
+    ]
+
+    def setup_axes():
+        for ax, title in zip([ax1, ax2, ax3], titles):
+            ax.set_ylim(0, 1.5)
+            ax.set_yticklabels([])
+            ax.grid(True, alpha=0.3)
+            ax.set_title(title, fontsize=10, pad=18)
+
+    # Initial draw
+    plot_signal_on_circle(ax1, f_original, theta)
+    plot_signal_on_circle(ax2, L_display, theta)
+    plot_signal_on_circle(ax3, conv_original, theta)
+    setup_axes()
+
     def update(frame):
         shift = rotation_steps[frame]
         rotation_angle = (shift / N) * 360
-        
-        # Rotate input signal
+
         f_rotated = rotate_signal(f_original, shift)
-        
-        # Convolve rotated signal
+
         conv_rotated = convolve_so2(f_rotated, L)
-        conv_rotated = conv_rotated - conv_rotated.min()
-        conv_rotated = conv_rotated / (conv_rotated.max() + 1e-10)
-        
-        # Apply inverse rotation to convolution result (equivariance correction)
-        # If convolution is equivariant: Conv(Rotate(f)) = Rotate(Conv(f))
-        # So: Rotate^{-1}(Conv(Rotate(f))) = Conv(f) (should be static!)
+        conv_rotated = (conv_rotated - conv_rotated.min()) / \
+                       (conv_rotated.max() - conv_rotated.min() + 1e-10)
         conv_corrected = rotate_signal(conv_rotated, -shift)
-        
-        # Update left plot (rotating input)
-        radii_rotated = signal_to_radius(f_rotated)
-        theta_closed = np.append(theta, theta[0])
-        radii_closed = np.append(radii_rotated, radii_rotated[0])
-        
-        line1.set_data(theta_closed, radii_closed)
-        # Update fill - remove old fills first
-        for coll in ax1.collections[:]:
-            coll.remove()
-        ax1.fill(theta_closed, radii_closed, color='#2E86AB', alpha=0.3)
-        
-        # Update right plot (corrected convolution - should stay static)
-        radii_corrected = signal_to_radius(conv_corrected)
-        radii_corr_closed = np.append(radii_corrected, radii_corrected[0])
-        
-        line2.set_data(theta_closed, radii_corr_closed)
-        for coll in ax2.collections[:]:
-            coll.remove()
-        ax2.fill(theta_closed, radii_corr_closed, color='#A23B72', alpha=0.3)
-        
-        # Update angle text
+
+        ax1.clear(); ax2.clear(); ax3.clear()
+
+        plot_signal_on_circle(ax1, f_rotated, theta)
+        plot_signal_on_circle(ax2, L_display, theta)
+        plot_signal_on_circle(ax3, conv_corrected, theta)
+        setup_axes()
+
         angle_text.set_text(f'Rotation: α = {rotation_angle:.0f}°')
-        
-        return line1, line2, angle_text
-    
-    anim = FuncAnimation(fig, update, frames=n_frames, interval=100, blit=False)
-    
+        return []
+
+    anim = FuncAnimation(fig, update, frames=n_frames,
+                         interval=100, blit=False)
     return fig, anim
 
 
@@ -171,14 +171,13 @@ def create_animation():
 # =========================================================
 
 if __name__ == '__main__':
-    print("Creating SO(2) equivariance visualization...")
-    
+    print("Creating SO(2) equivariance visualization …")
+
     fig, anim = create_animation()
-    
-    # Save as GIF
+
     output_path = '/home/dani/projects/dani2442_code/group-cnn/so2_equivariance.gif'
     writer = PillowWriter(fps=10)
     anim.save(output_path, writer=writer, dpi=100)
-    
+
     print(f"Animation saved to: {output_path}")
     plt.close()
