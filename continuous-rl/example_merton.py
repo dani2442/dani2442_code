@@ -176,33 +176,35 @@ def main():
     print(f"  A        = {sol['A']:.6f}")
     print(f"  V*(1)    = {analytical_value(np.array([1.0]), sol['A'], gamma, reward_scale).item():.4f}")
 
-    xs = np.linspace(0.5, 5.0, 200)
+    xs = np.linspace(0.2, 10.0, 200)
     V_exact = analytical_value(xs, sol["A"], gamma, reward_scale)
 
     # ── Build problem ──────────────────────────────────────────────────
     # c_rate bounds: optimal k ≈ 0.048, range [0.005, 0.20] wide enough
+    # x_range must cover the territory that GBM trajectories visit;
+    # too narrow a range causes terminal-bootstrap extrapolation errors.
     problem = MertonProblem(
         r_f=r_f, mu=mu, sigma=sigma, gamma=gamma, rho=rho,
         pi_bounds=(0.0, 1.5),
         crate_bounds=(0.005, 0.20),
-        x_range=(0.5, 5.0),
+        x_range=(0.2, 10.0),
         reward_scale=reward_scale,
     )
 
     # ── Policy iteration ──────────────────────────────────────────────
     cfg = PIConfig(
         rho=rho,
-        T=20.0,
+        T=10.0,
         dt=0.05,
-        n_trajectories=256,
-        n_eval_steps=400,
+        n_trajectories=512,
+        n_eval_steps=600,
         n_improve_steps=40,
         lr_value=3e-3,
-        lr_policy=3e-4,
+        lr_policy=1e-3,
         hidden_dim=128,
         n_layers=3,
         n_collocation=512,
-        n_outer=40,
+        n_outer=60,
         device=device,
     )
     solver = PolicyIteration(problem, cfg)
