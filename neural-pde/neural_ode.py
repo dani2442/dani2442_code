@@ -62,7 +62,7 @@ y0 = torch.tensor([2.0, 0.0], dtype=DTYPE)
 
 with torch.no_grad():
     y_clean = euler_rollout(lambda y, t: f_true(y), y0, t_grid)
-    noise = 0.03 * torch.randn_like(y_clean)
+    noise = 0.02 * torch.randn_like(y_clean)
     y_obs = y_clean + noise          # noisy observations = the "data" D
 
 
@@ -91,9 +91,9 @@ class ODEFunc(nn.Module):
 # 3. Training: minimize J(theta)
 # -----------------------------------------------------------------------------
 func = ODEFunc().to(DEVICE)
-opt = torch.optim.Adam(func.parameters(), lr=1e-2)
+opt = torch.optim.Adam(func.parameters(), lr=7e-3)
 GAMMA = 1e-4                  # Tikhonov / coercivity weight
-ITERS = 3000
+ITERS = 1000
 BATCH_TIME = 40               # length of each sub-trajectory
 BATCH_SIZE = 32               # number of sub-trajectories per step
 

@@ -140,7 +140,7 @@ model = Source().to(dtype=DTYPE)
 opt = torch.optim.Adam(model.parameters(), lr=3e-3)
 sched = torch.optim.lr_scheduler.StepLR(opt, step_size=1500, gamma=0.3)
 GAMMA = 1e-6
-EPOCHS = 4000
+EPOCHS = 2000
 
 obs_idx = torch.arange(0, N_T + 1, 8)          # subsample in time -> data points
 history = []
