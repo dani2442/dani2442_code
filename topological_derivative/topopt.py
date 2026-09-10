@@ -29,7 +29,7 @@ Outputs (written to ../../content/posts/topological_derivative/):
     td_gradient.png    the topological gradient on the full domain
     td_optimization.gif  actual designs, filtered sensitivities and history
     td_convergence.png   static convergence history
-    td_bridge.png        simply supported beam with supports and traction
+    td_bridge.png        three-pier bridge with piers and deck traction
     td_lbracket.png      L-bracket with clamp and traction
     td_bridge_sweep.png  bridge designs across volume and filter radius
     td_results.json      parameters and numerical histories behind the figures
@@ -121,32 +121,37 @@ def cantilever(nx=150, ny=75):
     return p
 
 
-def mbb_beam(nx=180, ny=60):
-    p = Problem("mbb", 3.0, 1.0, nx, ny, 0.40,
-                label="simply supported, central top load")
+def bridge(nx=180, ny=60):
+    p = Problem("bridge", 3.0, 1.0, nx, ny, 0.40,
+                label="three pinned piers, uniformly loaded deck")
     p.mesh = fem.rect_mesh(p.lx, p.ly, nx, ny)
     nodes, tris, cell, _ = p.mesh
     p.pb = fem.Elasticity2D(nodes, tris, nu=NU, model=MODEL)
     nid = p.node_grid()
 
-    pin = nid[0, 0]                       # bottom-left: both components
-    roller = nid[nx, 0]                   # bottom-right: vertical only
-    p.fixed = np.array([2 * pin, 2 * pin + 1, 2 * roller + 1])
+    # Three piers on the bottom edge: the two abutments and one at midspan.
+    # Each restrains horizontal and vertical translation, so both spans are
+    # continuous over supports that can carry a horizontal reaction.
+    pier_x = np.array([0.0, 0.5 * p.lx, p.lx])
+    pins = nid[np.rint(pier_x / p.h[0]).astype(int), 0]
+    p.fixed = np.concatenate([2 * pins, 2 * pins + 1])
 
-    x = nodes[nid[:, ny], 0]
-    half = max(0.05 * p.ly, 1.01 * p.h[0])      # at least one element edge
-    patch = np.abs(x - 0.5 * p.lx) <= half
-    edges = _edges_on_line(nid[:, ny], patch)
-    length = np.abs(x[patch].max() - x[patch].min())
-    p.f = p.pb.edge_load(edges, np.array([0.0, -1.0 / length]))
+    # Gamma_N is the whole top edge: a uniform downward deck load, scaled to
+    # total magnitude 1 so J/J_0 stays comparable with the other load cases.
+    top = nid[:, ny]
+    edges = _edges_on_line(top, np.ones(nx + 1, bool))
+    p.f = p.pb.edge_load(edges, np.array([0.0, -1.0 / p.lx]))
 
     Xc, Yc = p.cell_centers()
     hx, hy = p.h
     p.void = np.zeros(nx * ny, bool)
-    p.keep = (((Yc > p.ly - 3 * hy) & (np.abs(Xc - 0.5 * p.lx) < half + 2 * hx)) |
-              ((Yc < 3 * hy) & ((Xc < 3 * hx) | (Xc > p.lx - 3 * hx)))).ravel()
-    p.anchors = [("load", (0.5 * p.lx, p.ly)), ("support", (0.0, 0.0)),
-                 ("support", (p.lx, 0.0))]
+    # The deck carries the traction and the pier heads receive the reactions;
+    # both must stay solid or the greedy step can load pure ersatz material.
+    deck = Yc > p.ly - 2 * hy
+    piers = (Yc < 3 * hy) & (np.abs(Xc[..., None] - pier_x).min(-1) < 3 * hx)
+    p.keep = (deck | piers).ravel()
+    p.anchors = ([("load", (0.5 * p.lx, p.ly))] +
+                 [("support", (x, 0.0)) for x in pier_x])
     return p
 
 
@@ -167,16 +172,20 @@ def l_bracket(n=120):
     top = nid[:, n][nodes[nid[:, n], 0] <= cut + 1e-12]
     p.fixed = np.concatenate([2 * top, 2 * top + 1])
 
-    y = nodes[nid[n], 1]
-    half = max(0.05, 1.01 * p.h[1])             # at least one element edge
-    patch = (y <= cut + 1e-12) & (y >= cut - 2 * half)
-    edges = _edges_on_line(nid[n], patch)
-    length = np.abs(y[patch].max() - y[patch].min())
+    # Gamma_N is horizontal: the right end of the upper face of the horizontal
+    # arm, at y = cut, carrying a downward traction normal to that face.
+    line = nid[:, int(round(cut / p.h[1]))]
+    x = nodes[line, 0]
+    half = max(0.05, 1.01 * p.h[0])             # at least one element edge
+    patch = x >= p.lx - 2 * half - 1e-12
+    edges = _edges_on_line(line, patch)
+    length = np.abs(x[patch].max() - x[patch].min())
     p.f = p.pb.edge_load(edges, np.array([0.0, -1.0 / length]))
 
     hx, hy = p.h
-    p.keep = ((Xc > p.lx - 3 * hx) & (Yc <= cut) & (Yc > cut - 2 * half - 2 * hy)).ravel()
-    p.anchors = [("load", (p.lx, cut))]
+    p.keep = ((Yc <= cut) & (Yc > cut - 3 * hy) &
+              (Xc > p.lx - 2 * half - 2 * hx)).ravel()
+    p.anchors = [("load", (p.lx - half, cut))]
     return p
 
 
@@ -308,8 +317,8 @@ def _tri(p):
 def _bare(ax, p):
     ax.set_aspect("equal")
     ax.set_xlim(-0.13 * p.ly, p.lx + 0.23 * p.ly)
-    ax.set_ylim(-0.32 * p.ly if p.name == "mbb" else -0.05 * p.ly,
-                1.36 * p.ly if p.name == "mbb" else 1.16 * p.ly)
+    ax.set_ylim(-0.32 * p.ly if p.name == "bridge" else -0.05 * p.ly,
+                1.36 * p.ly if p.name == "bridge" else 1.16 * p.ly)
     ax.grid(False)
     ax.set_xticks([])
     ax.set_yticks([])
@@ -349,29 +358,23 @@ def plot_field(ax, p, g_tri, clip=98.0):
 def annotate_bcs(ax, p, nodes):
     """Draw displacement constraints separately from the prescribed traction.
 
-    The beam has a pin and a roller, not two clamps. Its point constraints
-    belong to the discrete benchmark; Gamma_D labels constrained components.
+    The bridge has three pinned point supports, not clamped edges. Its point
+    constraints belong to the discrete benchmark; Gamma_D labels constrained
+    components.
     Arrows illustrate traction direction, not the unequal nodal quadrature
-    weights at the endpoints of a uniformly loaded patch.
+    weights at the endpoints of a uniformly loaded edge.
     """
-    from matplotlib.patches import Polygon, Circle
+    from matplotlib.patches import Polygon
     fixed_nodes = np.unique(np.asarray(p.fixed) // 2)
-    if p.name == "mbb":
-        for x, roller in ((0.0, False), (p.lx, True)):
+    if p.name == "bridge":
+        for x in np.unique(nodes[fixed_nodes, 0]):
             ax.add_patch(Polygon([(x, 0), (x - .065, -.11), (x + .065, -.11)],
                                  facecolor=style.SURFACE, edgecolor=style.INK_2,
                                  lw=1.3, zorder=6))
             ground = -.13
-            if roller:
-                for dx in (-.037, .037):
-                    ax.add_patch(Circle((x + dx, -.135), .019,
-                                        facecolor=style.SURFACE,
-                                        edgecolor=style.INK_2, lw=1, zorder=6))
-                ground = -.17
             ax.plot([x - .09, x + .09], [ground, ground], color=style.INK_2, lw=1)
-            ax.text(x, -.21, r"$\Gamma_D:\ u_y=0$" if roller
-                    else r"$\Gamma_D:\ u_x=u_y=0$", ha="center", va="top",
-                    fontsize=8, color=style.INK_2)
+        ax.text(.5 * p.lx, -.155, r"$\Gamma_D:\ u_x=u_y=0$ at three piers",
+                ha="center", va="top", fontsize=8, color=style.INK_2)
     else:
         xy = nodes[fixed_nodes]
         ax.plot(xy[:, 0], xy[:, 1], color=style.INK_2, lw=2.5, zorder=5)
@@ -388,13 +391,24 @@ def annotate_bcs(ax, p, nodes):
     loaded = np.unique(np.where(np.abs(p.f) > 0)[0] // 2)
     xy = nodes[loaded]
     ax.plot(xy[:, 0], xy[:, 1], color=style.ORANGE, lw=3, zorder=6)
-    if p.name == "mbb":
-        for x in np.linspace(xy[:, 0].min(), xy[:, 0].max(), 3):
-            ax.annotate("", xy=(x, p.ly), xytext=(x, p.ly + .24),
-                        arrowprops=dict(arrowstyle="-|>", lw=1.4,
+    if p.name == "bridge":
+        for x in np.linspace(xy[:, 0].min(), xy[:, 0].max(), 13):
+            ax.annotate("", xy=(x, p.ly), xytext=(x, p.ly + .22),
+                        arrowprops=dict(arrowstyle="-|>", lw=1.2,
                                         color=style.ORANGE), zorder=7)
-        ax.text(p.lx / 2, p.ly + .28, r"$\Gamma_N:\ g\downarrow$",
-                ha="center", color=style.ORANGE, fontsize=10)
+        ax.text(p.lx / 2, p.ly + .27,
+                r"$\Gamma_N$: uniform $g\downarrow$ on the whole top edge",
+                ha="center", color=style.ORANGE, fontsize=9.5)
+    elif p.name == "lbracket":
+        # The loaded patch is horizontal, so the arrows press down onto it
+        # from the permanently void block above.
+        y0 = xy[:, 1].mean()
+        for x in np.linspace(xy[:, 0].min(), xy[:, 0].max(), 6):
+            ax.annotate("", xy=(x, y0), xytext=(x, y0 + .17),
+                        arrowprops=dict(arrowstyle="-|>", lw=1.2,
+                                        color=style.ORANGE), zorder=7)
+        ax.text(xy[:, 0].mean(), y0 + .21, r"$\Gamma_N$", ha="center",
+                color=style.ORANGE, fontsize=10)
     else:
         center = xy[:, 1].mean()
         # A leader identifies the loaded vertical patch; the adjacent arrow
@@ -537,16 +551,18 @@ def figure_animation(p, hist):
 def figure_example(p, chi, hist):
     """Each load case gets its own figure with its actual constraints."""
     import matplotlib.pyplot as plt
-    fig, ax = plt.subplots(figsize=(8.4, 4.2) if p.name == "mbb" else (5.2, 5.2))
+    fig, ax = plt.subplots(figsize=(8.4, 4.2) if p.name == "bridge" else (5.2, 5.2))
     plot_design(ax, p, chi)
     annotate_bcs(ax, p, p.mesh[0])
-    name = "Bridge-like beam: pin, roller and central traction" if p.name == "mbb" else "L-bracket: top clamp and downward traction"
+    name = ("Three-pier bridge: uniformly loaded deck over two spans"
+            if p.name == "bridge" else
+            "L-bracket: top clamp, downward traction on the horizontal arm")
     ax.set_title(name + "\n" +
                  r"$V=%.2f$,  $r_{\min}/h=%.1f$,  $J/J_0=%.2f$  (%d iterations)"
                  % (hist["V"][-1], p.rmin_cells,
                     hist["J"][-1] / hist["J"][0], len(hist["J"]) - 1), fontsize=10)
     fig.tight_layout()
-    filename = "td_bridge.png" if p.name == "mbb" else "td_lbracket.png"
+    filename = "td_bridge.png" if p.name == "bridge" else "td_lbracket.png"
     fig.savefig(OUT / filename, dpi=170, bbox_inches="tight")
     plt.close(fig)
     print(f"wrote {filename}")
@@ -569,9 +585,10 @@ def figure_bridge_sweep(results):
                      % (hist["J"][-1] / hist["J"][0],
                         100 * hist["J"][0] / hist["J"][-1]), fontsize=10)
     fig.suptitle("One bridge load case, nine final configurations\n"
-                 r"same $180\times60$ cell mesh, load, material and 120 iterations; evolution rate $2\%$",
+                 r"same $180\times60$ cell mesh, three piers, uniform deck load,"
+                 r" material and 120 iterations; evolution rate $2\%$",
                  fontsize=13)
-    fig.tight_layout(rect=(0, 0, 1, .93), h_pad=2, w_pad=2)
+    fig.tight_layout(rect=(0, 0, 1, .93), h_pad=3.2, w_pad=2)
     fig.savefig(OUT / "td_bridge_sweep.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
     print("wrote td_bridge_sweep.png")
@@ -593,7 +610,8 @@ def main():
     summary = []
 
     def run(p, n_iter=90, record=False):
-        key = f"{p.name}_{p.nx}x{p.ny}_v{p.vol_frac}_r{p.rmin_cells}_n{n_iter}_record{record}"
+        bc_tag = "_3pier_deck" if p.name == "bridge" else ""
+        key = f"{p.name}{bc_tag}_{p.nx}x{p.ny}_v{p.vol_frac}_r{p.rmin_cells}_n{n_iter}_record{record}"
         cache = args.cache_dir / (key + ".npz") if args.cache_dir else None
         if cache and cache.exists():
             with np.load(cache) as data:
@@ -614,6 +632,8 @@ def main():
                             target_volume=p.vol_frac, rmin_cells=p.rmin_cells,
                             iterations=n_iter, evolution_rate=.02, E=E_SOLID,
                             E_min=E_MIN, nu=NU, model=MODEL,
+                            support_condition=("three pins: ux=uy=0 at x=0, L/2, L"
+                                               if p.name == "bridge" else p.label),
                             total_force=p.f.reshape(-1, 2).sum(axis=0).tolist(),
                             J=J.tolist(), V=V.tolist()))
         return chi, hist
@@ -627,7 +647,7 @@ def main():
     bridge_results = []
     for radius in (2.5, 3.5, 5.5):
         for volume in (.30, .40, .50):
-            p = mbb_beam()
+            p = bridge()
             p.rmin_cells, p.vol_frac = radius, volume
             chi, hist = run(p, n_iter=120)
             bridge_results.append((p, chi, hist))

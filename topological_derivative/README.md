@@ -38,9 +38,9 @@ plane stress the prefactor collapses to `1/E`, in plane strain to `(1-nu^2)/E`.
   that the three algebraic forms of the formula used in the post agree to
   machine precision.
 
-- `topopt.py` — compliance minimization for three load cases (cantilever, MBB
-  beam, L-bracket), a GIF of every cantilever iteration, separate annotated
-  load-case figures, and a nine-run bridge parameter comparison.
+- `topopt.py` — compliance minimization for three load cases (cantilever,
+  three-pier bridge, L-bracket), a GIF of every cantilever iteration, separate
+  annotated load-case figures, and a nine-run bridge parameter comparison.
 
 - `style.py` — one documented palette and matplotlib settings shared by every
   figure.
@@ -73,9 +73,9 @@ Generated optimization assets:
 | `td_gradient.png` | Raw topological derivative on the full-material cantilever, available separately from the animation. |
 | `td_optimization.gif` | 91 solved states (iterations 0–90), each showing material, the filtered update score, and stiffness/volume history. |
 | `td_convergence.png` | Static cantilever history. |
-| `td_bridge.png` | Baseline beam with the actual pin, roller, and central traction. |
-| `td_lbracket.png` | L-bracket with its top clamp and tip traction. |
-| `td_bridge_sweep.png` | Nine beam configurations: columns vary `V = 0.30, 0.40, 0.50`; rows vary `rmin/h = 2.5, 3.5, 5.5`. |
+| `td_bridge.png` | Baseline bridge: three pinned piers, uniform traction on the whole top edge. |
+| `td_lbracket.png` | L-bracket with its top clamp and the downward traction on the upper face of the horizontal arm. |
+| `td_bridge_sweep.png` | Nine bridge configurations: columns vary `V = 0.30, 0.40, 0.50`; rows vary `rmin/h = 2.5, 3.5, 5.5`. |
 | `td_results.json` | Parameters, total force, and full compliance/volume histories for all eleven runs. |
 
 The GIF uses recorded solver states, including a fresh state solve after the
@@ -84,13 +84,18 @@ used by the update, including its extension into void cells. One shared colour
 scale is gamma-compressed and clipped at the 98th percentile of positive scores
 across the run. It is an animation of material changes on a fixed mesh.
 
-Every beam run uses the same `180 x 60` cell mesh, central downward load of
-total magnitude 1, protected load/support cells, plane stress, `E = 1`,
-`nu = 0.3`, `E_min = 1e-6`, evolution rate `0.02`, and 120 updates. The
-baseline is `V = 0.40`, `rmin/h = 3.5`; all ratios use the same full-material
-compliance `J0 = 14.0330`. The MBB beam is a simplified bridge-like benchmark.
-Its discrete corner pin/roller constraints are distinct from the continuum
-clamped-boundary assumptions in the post's theorem.
+Every bridge run uses the same `3 x 1` domain on a `180 x 60` cell mesh, three
+pins imposing `ux = uy = 0` at `x = 0, 1.5, 3` on the bottom edge, and a uniform
+downward traction of total magnitude 1 spread over the *whole* top edge
+(`Gamma_N = {y = 1}`, `g = (0, -1/3)`), plus plane stress, `E = 1`, `nu = 0.3`,
+`E_min = 1e-6`, evolution rate `0.02`, and 120 updates. The baseline is
+`V = 0.40`, `rmin/h = 3.5`; all ratios use the same full-material compliance
+`J0 = 1.71216` reported by the current run. Two cell rows of deck and the three
+pier heads are protected (396 cells, 3.7% of the domain), so the traction and
+the reactions always act on solid material. Every pier carries horizontal
+reaction, which is what allows an arch to form; the discrete point constraints
+are distinct from the continuum clamped-boundary assumptions in the post's
+theorem.
 
 ## Verification results
 
@@ -156,5 +161,5 @@ removal, and the bracket `4 sigma:sigma - (tr sigma)^2 = 3(s_I^2 + s_II^2) -
 - **Cone filter radius.** `rmin_cells = 3.5` element sizes. Smaller radii give
   thinner members and more mesh dependence; larger radii wash out the members.
 - **Protected cells.** The cells under the load patch (and at the point supports
-  of the MBB beam) are pinned solid. Without that, the greedy step can void the
+  of the bridge) are pinned solid. Without that, the greedy step can void the
   material the load is applied to.
