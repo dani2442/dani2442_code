@@ -1,4 +1,4 @@
-| Objective | Own loss | Relative L2 | Relative energy | Relative residual | Training (s) |
+| Objective | Training loss $\widehat{\mathcal L}$ | $L^2$ error $\varepsilon_0$ | Energy error $\varepsilon_1$ | Residual $\rho$ | Time (s) |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | strong | 6.02e-04 | 0.44% | 0.71% | 2.45% | 7.39 |
 | weak-2 | 3.75e-34 | 10.19% | 62.71% | 98.95% | 5.66 |

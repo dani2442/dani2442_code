@@ -38,13 +38,45 @@ plane stress the prefactor collapses to `1/E`, in plane strain to `(1-nu^2)/E`.
   that the three algebraic forms of the formula used in the post agree to
   machine precision.
 
-- `topopt.py` — compliance minimization for five load cases (cantilever,
-  three-pier bridge, hanging bridge, suspended deck, L-bracket), a GIF of every
-  cantilever and bridge iteration, separate annotated load-case figures, and
-  two nine-run parameter comparisons.
+- `topopt.py` — the driver, and the only place that decides *what* to run:
+  five load cases (cantilever, three-pier bridge, hanging bridge, suspended
+  deck, L-bracket), a GIF of every cantilever and bridge iteration, separate
+  annotated load-case figures, and two nine-run parameter comparisons. It also
+  owns the optional run cache and `td_results.json`. The pieces it drives:
+
+  - `problem.py` — the `Problem` base class and the material constants. Holds
+    the mesh, the elasticity operator, the boundary data (`f`, `fixed`, the
+    permanently void cells and the protected `keep` cells), the geometry
+    helpers the load cases build on, and the schedule (`vol_frac`,
+    `rmin_cells`, `evol_rate`, `n_iter`).
+
+  - `examples/` — **one module per load case**: `cantilever.py`, `bridge.py`,
+    `hanging.py`, `suspended.py`, `lbracket.py`. Each is a `Problem` subclass
+    that declares its geometry and schedule as class attributes, implements
+    `boundary_conditions`, and draws its own `Gamma_D`/`Gamma_N`. `deck.py`
+    holds what the three bridges share — a uniformly loaded deck on pinned
+    piers, parameterized by which long edge the piers stand on and which one
+    carries the traction — so each bridge variant is about twenty lines.
+
+  - `solver.py` — the cone filter, the state solve, and the optimization loop.
+    Everything it needs comes from the `Problem` it is handed.
+
+  - `draw.py` — drawing primitives: the material indicator, per-triangle
+    magnitude fields, the convergence history, and the boundary-condition
+    symbols (`piers`, `clamped_edge`, `loaded_edge`, `down_arrows`) that the
+    load cases compose into their own sketches.
+
+  - `figures.py` — the figures of the post. Each takes a `Problem` and asks it
+    to annotate its own axes, so no figure branches on which case it is drawing.
 
 - `style.py` — one documented palette and matplotlib settings shared by every
   figure.
+
+To add a load case, add one module to `examples/`, export it from
+`examples/__init__.py`, and call it from `topopt.py`. Nothing else needs to
+change: a `Problem` answers for its own view limits, boundary-condition
+symbols, figure titles and cache key, so the solver and the figures already
+handle it.
 
 ## Run
 
@@ -71,8 +103,8 @@ Generated optimization assets:
 | File | Content |
 |---|---|
 | `td_mesh.png` | Cantilever mesh, clamped edge, and loaded patch. |
-| `td_gradient.png` | Raw topological derivative on the full-material cantilever, available separately from the animation. |
-| `td_optimization.gif` | 91 solved states (iterations 0–90), each showing material, the filtered update score, and stiffness/volume history. |
+| `td_gradient.png` | Raw topological derivative on the full-material cantilever, before the cone filter. |
+| `td_optimization.gif` | 91 solved states (iterations 0–90), each showing material, the displacement magnitude of the solved state, and stiffness/volume history. |
 | `td_convergence.png` | Static cantilever history. |
 | `td_bridge.gif` | 121 solved states (iterations 0-120) of the baseline bridge: three pinned piers, uniform traction on the whole top edge. |
 | `td_hanging.png` | Baseline hanging bridge: two end piers, uniform traction on the whole bottom edge. |
@@ -83,11 +115,14 @@ Generated optimization assets:
 | `td_results.json` | Parameters, total force, and full compliance/volume histories for all twenty-one runs. |
 
 Both GIFs use recorded solver states, including a fresh state solve after the
-last update. The sensitivity shown is the cone-filtered, recursively averaged
-score used by the update, including its extension into void cells. Each GIF has
-one colour scale of its own, gamma-compressed and clipped at the 98th percentile
-of the positive scores across that run. They animate material changes on a
-fixed mesh.
+last update. The field shown is the nodal displacement magnitude `|u|` of the
+state solved on the layout beside it, averaged onto the triangles and masked
+outside the material, so each frame pairs a design with its own deflection.
+Each GIF has one linear colour scale of its own, fixed at the 99th percentile
+of the displacements over that run, which is what makes the growing deflection
+readable across frames; the percentile rather than the maximum, because an
+intermediate state can leave a barely connected fragment that the ersatz
+modulus lets move far further than the structure itself. They animate material changes on a fixed mesh.
 
 Every bridge run uses the same `3 x 1` domain on a `180 x 60` cell mesh, three
 pins imposing `ux = uy = 0` at `x = 0, 1.5, 3` on the bottom edge, and a uniform

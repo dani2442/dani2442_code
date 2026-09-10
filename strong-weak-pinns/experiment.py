@@ -123,13 +123,14 @@ def validate():
     r = dphi.T @ (w * de)
     assert r[:4].norm() < 1e-10
     energy = (w * de.square()).sum()
-    torch.testing.assert_close((r.flatten().square() / lam).sum(), energy)
+    torch.testing.assert_close((r.flatten().square() / lam).sum(), energy, atol=1e-12, rtol=1e-10)
     # Invariance under a nonsingular, nonorthogonal change of basis.
     torch.manual_seed(2026)
     change = torch.eye(16) + .03 * torch.randn(16, 16)
     transformed = change.T @ r
     transformed_gram = change.T @ gram @ change
-    torch.testing.assert_close((transformed.T @ torch.linalg.solve(transformed_gram, transformed)).squeeze(), energy)
+    torch.testing.assert_close((transformed.T @ torch.linalg.solve(transformed_gram, transformed)).squeeze(),
+                               energy, atol=1e-12, rtol=1e-10)
     # Derivative of the actual training objective against finite differences.
     model = PINN(4)
     objective = Objective(64)
@@ -294,7 +295,7 @@ def plot(results, figures):
     plt.close(fig)
 
     # Keep the article's numeric table reproducible from the saved runs.
-    lines = ["| Objective | Own loss | Relative L2 | Relative energy | Relative residual | Training (s) |",
+    lines = [r"| Objective | Training loss $\widehat{\mathcal L}$ | $L^2$ error $\varepsilon_0$ | Energy error $\varepsilon_1$ | Residual $\rho$ | Time (s) |",
              "| --- | ---: | ---: | ---: | ---: | ---: |"]
     for method in METHODS:
         last = np.array([data[f"{method}_seed{s}"][-1] for s in seeds])

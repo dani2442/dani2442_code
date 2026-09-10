@@ -188,6 +188,12 @@ class Elasticity2D:
         return E[:, None] * (self.strain(u) @ self.D1.T)
 
 
+def displacement_magnitude(u):
+    """Nodal |u| (N,) from an interleaved displacement vector (2N,)."""
+    u = np.asarray(u, float)
+    return np.hypot(u[0::2], u[1::2])
+
+
 # -----------------------------------------------------------------------------
 # 4. The topological derivative of the compliance
 # -----------------------------------------------------------------------------
