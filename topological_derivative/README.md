@@ -38,9 +38,10 @@ plane stress the prefactor collapses to `1/E`, in plane strain to `(1-nu^2)/E`.
   that the three algebraic forms of the formula used in the post agree to
   machine precision.
 
-- `topopt.py` — compliance minimization for three load cases (cantilever,
-  three-pier bridge, L-bracket), a GIF of every cantilever iteration, separate
-  annotated load-case figures, and a nine-run bridge parameter comparison.
+- `topopt.py` — compliance minimization for five load cases (cantilever,
+  three-pier bridge, hanging bridge, suspended deck, L-bracket), a GIF of every
+  cantilever and bridge iteration, separate annotated load-case figures, and
+  two nine-run parameter comparisons.
 
 - `style.py` — one documented palette and matplotlib settings shared by every
   figure.
@@ -73,16 +74,20 @@ Generated optimization assets:
 | `td_gradient.png` | Raw topological derivative on the full-material cantilever, available separately from the animation. |
 | `td_optimization.gif` | 91 solved states (iterations 0–90), each showing material, the filtered update score, and stiffness/volume history. |
 | `td_convergence.png` | Static cantilever history. |
-| `td_bridge.png` | Baseline bridge: three pinned piers, uniform traction on the whole top edge. |
+| `td_bridge.gif` | 121 solved states (iterations 0-120) of the baseline bridge: three pinned piers, uniform traction on the whole top edge. |
+| `td_hanging.png` | Baseline hanging bridge: two end piers, uniform traction on the whole bottom edge. |
+| `td_hanging_sweep.png` | Nine hanging-bridge configurations, same grid of `V` and `rmin/h`. |
+| `td_suspended.png` | The bottom-edge load hung from three piers on the *top* edge — the exact vertical mirror of the `td_bridge` design. |
 | `td_lbracket.png` | L-bracket with its top clamp and the downward traction on the upper face of the horizontal arm. |
 | `td_bridge_sweep.png` | Nine bridge configurations: columns vary `V = 0.30, 0.40, 0.50`; rows vary `rmin/h = 2.5, 3.5, 5.5`. |
-| `td_results.json` | Parameters, total force, and full compliance/volume histories for all eleven runs. |
+| `td_results.json` | Parameters, total force, and full compliance/volume histories for all twenty-one runs. |
 
-The GIF uses recorded solver states, including a fresh state solve after the
-last update. Its sensitivity is the cone-filtered, recursively averaged score
-used by the update, including its extension into void cells. One shared colour
-scale is gamma-compressed and clipped at the 98th percentile of positive scores
-across the run. It is an animation of material changes on a fixed mesh.
+Both GIFs use recorded solver states, including a fresh state solve after the
+last update. The sensitivity shown is the cone-filtered, recursively averaged
+score used by the update, including its extension into void cells. Each GIF has
+one colour scale of its own, gamma-compressed and clipped at the 98th percentile
+of the positive scores across that run. They animate material changes on a
+fixed mesh.
 
 Every bridge run uses the same `3 x 1` domain on a `180 x 60` cell mesh, three
 pins imposing `ux = uy = 0` at `x = 0, 1.5, 3` on the bottom edge, and a uniform
@@ -96,6 +101,29 @@ the reactions always act on solid material. Every pier carries horizontal
 reaction, which is what allows an arch to form; the discrete point constraints
 are distinct from the continuum clamped-boundary assumptions in the post's
 theorem.
+
+The hanging-bridge runs share the domain, mesh, material, schedule and total
+load, and move both boundaries to the bottom: `Gamma_N = {y = 0}` with the same
+`g = (0, -1/3)`, and only two pins, at `x = 0, 3`. Its full-material compliance
+is `J0 = 4.23710`. Two deck rows and the two pier heads are protected (366
+cells). The corner nodes are both loaded and pinned, so `hx/lx = 0.56%` of the
+nodal load is taken directly by the supports and does no work; all ratios for
+this case use its own `J0`. With the load underneath, the optimum inverts: an
+arch above a deck that acts as a partial tie, instead of a deck resting on
+arches.
+
+`suspended_bridge` keeps the bottom-edge load and puts three pins back, this
+time on the top edge at `x = 0, 1.5, 3`. It is the exact vertical mirror of
+`bridge`: reflecting `y -> ly - y` flips the parity of `i + j`, which is
+precisely what maps a `/` union-jack diagonal onto the `\` its mirror needs,
+so the reflected triangulation is the original one. The reflected load is the
+original with `g` reversed, and both `J = f.u` and
+`D_T J ~ 4 sigma:sigma - (tr sigma)^2` are even in the sign of the state. The
+run confirms it: the two compliance histories agree to `1.3e-12` over all 121
+iterations and the final designs differ in 0 of 10800 cells from an exact
+reflection. One run at the baseline settings is therefore enough — a sweep
+would reproduce `td_bridge_sweep.png` upside down. The practical consequence is
+that this objective cannot tell a compression arch from a tension cable.
 
 ## Verification results
 
@@ -161,5 +189,5 @@ removal, and the bracket `4 sigma:sigma - (tr sigma)^2 = 3(s_I^2 + s_II^2) -
 - **Cone filter radius.** `rmin_cells = 3.5` element sizes. Smaller radii give
   thinner members and more mesh dependence; larger radii wash out the members.
 - **Protected cells.** The cells under the load patch (and at the point supports
-  of the bridge) are pinned solid. Without that, the greedy step can void the
+  of either bridge) are pinned solid. Without that, the greedy step can void the
   material the load is applied to.

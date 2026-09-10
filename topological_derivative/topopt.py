@@ -29,7 +29,10 @@ Outputs (written to ../../content/posts/topological_derivative/):
     td_gradient.png    the topological gradient on the full domain
     td_optimization.gif  actual designs, filtered sensitivities and history
     td_convergence.png   static convergence history
-    td_bridge.png        three-pier bridge with piers and deck traction
+    td_bridge.gif        three-pier bridge with piers and deck traction
+    td_hanging.png       hanging bridge: deck underneath, two end piers
+    td_hanging_sweep.png hanging designs across volume and filter radius
+    td_suspended.png     the same deck hung from three piers on the top edge
     td_lbracket.png      L-bracket with clamp and traction
     td_bridge_sweep.png  bridge designs across volume and filter radius
     td_results.json      parameters and numerical histories behind the figures
@@ -152,6 +155,67 @@ def bridge(nx=180, ny=60):
     p.keep = (deck | piers).ravel()
     p.anchors = ([("load", (0.5 * p.lx, p.ly))] +
                  [("support", (x, 0.0)) for x in pier_x])
+    return p
+
+
+def hanging_bridge(nx=180, ny=60):
+    p = Problem("hanging", 3.0, 1.0, nx, ny, 0.40,
+                label="two end piers, deck hung underneath")
+    p.mesh = fem.rect_mesh(p.lx, p.ly, nx, ny)
+    nodes, tris, cell, _ = p.mesh
+    p.pb = fem.Elasticity2D(nodes, tris, nu=NU, model=MODEL)
+    nid = p.node_grid()
+
+    # Only the two end piers now, again restraining both components: an arch
+    # above the deck can only stand if its springings take horizontal thrust.
+    pier_x = np.array([0.0, p.lx])
+    pins = nid[np.rint(pier_x / p.h[0]).astype(int), 0]
+    p.fixed = np.concatenate([2 * pins, 2 * pins + 1])
+
+    # Gamma_N is the whole *bottom* edge, same uniform traction and same total
+    # magnitude 1. The two corner nodes are pinned, so a fraction hx/lx = 0.6%
+    # of the nodal load is taken straight by the supports and does no work.
+    edges = _edges_on_line(nid[:, 0], np.ones(nx + 1, bool))
+    p.f = p.pb.edge_load(edges, np.array([0.0, -1.0 / p.lx]))
+
+    Xc, Yc = p.cell_centers()
+    hx, hy = p.h
+    p.void = np.zeros(nx * ny, bool)
+    deck = Yc < 2 * hy
+    piers = (Yc < 3 * hy) & (np.abs(Xc[..., None] - pier_x).min(-1) < 3 * hx)
+    p.keep = (deck | piers).ravel()
+    p.anchors = ([("load", (0.5 * p.lx, 0.0))] +
+                 [("support", (x, 0.0)) for x in pier_x])
+    return p
+
+
+def suspended_bridge(nx=180, ny=60):
+    p = Problem("suspended", 3.0, 1.0, nx, ny, 0.40,
+                label="three piers on the top edge, deck hung underneath")
+    p.mesh = fem.rect_mesh(p.lx, p.ly, nx, ny)
+    nodes, tris, cell, _ = p.mesh
+    p.pb = fem.Elasticity2D(nodes, tris, nu=NU, model=MODEL)
+    nid = p.node_grid()
+
+    # Three piers again, but along the *top* edge: the deck now hangs from
+    # them instead of standing on them.
+    pier_x = np.array([0.0, 0.5 * p.lx, p.lx])
+    pins = nid[np.rint(pier_x / p.h[0]).astype(int), ny]
+    p.fixed = np.concatenate([2 * pins, 2 * pins + 1])
+
+    # Gamma_N is the whole bottom edge, same uniform traction as the other two
+    # bridges. Load and supports are on opposite edges, so all of it works.
+    edges = _edges_on_line(nid[:, 0], np.ones(nx + 1, bool))
+    p.f = p.pb.edge_load(edges, np.array([0.0, -1.0 / p.lx]))
+
+    Xc, Yc = p.cell_centers()
+    hx, hy = p.h
+    p.void = np.zeros(nx * ny, bool)
+    deck = Yc < 2 * hy
+    piers = (Yc > p.ly - 3 * hy) & (np.abs(Xc[..., None] - pier_x).min(-1) < 3 * hx)
+    p.keep = (deck | piers).ravel()
+    p.anchors = ([("load", (0.5 * p.lx, 0.0))] +
+                 [("support", (x, p.ly)) for x in pier_x])
     return p
 
 
@@ -317,8 +381,10 @@ def _tri(p):
 def _bare(ax, p):
     ax.set_aspect("equal")
     ax.set_xlim(-0.13 * p.ly, p.lx + 0.23 * p.ly)
-    ax.set_ylim(-0.32 * p.ly if p.name == "bridge" else -0.05 * p.ly,
-                1.36 * p.ly if p.name == "bridge" else 1.16 * p.ly)
+    lo, hi = {"bridge": (-0.32, 1.36),
+              "hanging": (-0.56, 1.10),
+              "suspended": (-0.42, 1.42)}.get(p.name, (-0.05, 1.16))
+    ax.set_ylim(lo * p.ly, hi * p.ly)
     ax.grid(False)
     ax.set_xticks([])
     ax.set_yticks([])
@@ -355,7 +421,7 @@ def plot_field(ax, p, g_tri, clip=98.0):
     return m
 
 
-def annotate_bcs(ax, p, nodes):
+def annotate_bcs(ax, p, nodes, compact=False):
     """Draw displacement constraints separately from the prescribed traction.
 
     The bridge has three pinned point supports, not clamped edges. Its point
@@ -366,15 +432,32 @@ def annotate_bcs(ax, p, nodes):
     """
     from matplotlib.patches import Polygon
     fixed_nodes = np.unique(np.asarray(p.fixed) // 2)
-    if p.name == "bridge":
+    if p.name in ("bridge", "hanging", "suspended"):
+        # The piers stand under the deck, except in the suspended case where
+        # they hang it from above and the symbols are mirrored.
+        base, out = (p.ly, .11) if p.name == "suspended" else (0.0, -.11)
         for x in np.unique(nodes[fixed_nodes, 0]):
-            ax.add_patch(Polygon([(x, 0), (x - .065, -.11), (x + .065, -.11)],
+            ax.add_patch(Polygon([(x, base), (x - .065, base + out),
+                                  (x + .065, base + out)],
                                  facecolor=style.SURFACE, edgecolor=style.INK_2,
                                  lw=1.3, zorder=6))
-            ground = -.13
+            ground = base + 1.18 * out
             ax.plot([x - .09, x + .09], [ground, ground], color=style.INK_2, lw=1)
-        ax.text(.5 * p.lx, -.155, r"$\Gamma_D:\ u_x=u_y=0$ at three piers",
-                ha="center", va="top", fontsize=8, color=style.INK_2)
+        if p.name == "suspended":
+            ax.text(.5 * p.lx, p.ly + .17,
+                    r"$\Gamma_D:\ u_x=u_y=0$ at three piers",
+                    ha="center", va="bottom", fontsize=8, color=style.INK_2)
+        elif p.name == "bridge":
+            ax.text(.5 * p.lx, -.155, r"$\Gamma_D:\ u_x=u_y=0$ at three piers",
+                    ha="center", va="top", fontsize=8, color=style.INK_2)
+        else:
+            # Both boundaries sit at the bottom here, so the support labels go
+            # outboard of the load arrows and on a line of their own. In a
+            # sweep panel there is only room for the symbol.
+            for x, ha in ((0.0, "left"), (p.lx, "right")):
+                ax.text(x, -.40, r"$\Gamma_D$" if compact
+                        else r"$\Gamma_D:\ u_x=u_y=0$", ha=ha, va="top",
+                        fontsize=8, color=style.INK_2)
     else:
         xy = nodes[fixed_nodes]
         ax.plot(xy[:, 0], xy[:, 1], color=style.INK_2, lw=2.5, zorder=5)
@@ -399,6 +482,20 @@ def annotate_bcs(ax, p, nodes):
         ax.text(p.lx / 2, p.ly + .27,
                 r"$\Gamma_N$: uniform $g\downarrow$ on the whole top edge",
                 ha="center", color=style.ORANGE, fontsize=9.5)
+    elif p.name in ("hanging", "suspended"):
+        # The traction pulls the bottom edge down, so the arrows leave the edge
+        # going downwards. Where a pier sits on that same edge its symbol takes
+        # priority and the arrow next to it is dropped.
+        clash = nodes[fixed_nodes, 1].min() < .5 * p.ly
+        for x in np.linspace(xy[:, 0].min(), xy[:, 0].max(), 13):
+            if clash and np.abs(np.unique(nodes[fixed_nodes, 0]) - x).min() < .14:
+                continue
+            ax.annotate("", xy=(x, -.24), xytext=(x, 0.0),
+                        arrowprops=dict(arrowstyle="-|>", lw=1.2,
+                                        color=style.ORANGE), zorder=7)
+        ax.text(p.lx / 2, -.27,
+                r"$\Gamma_N$: uniform $g\downarrow$ on the whole bottom edge",
+                ha="center", va="top", color=style.ORANGE, fontsize=9.5)
     elif p.name == "lbracket":
         # The loaded patch is horizontal, so the arrows press down onto it
         # from the permanently void block above.
@@ -485,7 +582,7 @@ def figure_convergence(hist):
     plt.close(fig)
 
 
-def figure_animation(p, hist):
+def figure_animation(p, hist, filename="td_optimization.gif", label="Cantilever"):
     """Render every solved iteration, with a fixed colour scale across frames."""
     import matplotlib.pyplot as plt
     from matplotlib.colors import PowerNorm
@@ -528,10 +625,14 @@ def figure_animation(p, hist):
         field_ax.set_title(r"Filtered update score $G_k$", fontsize=10)
         plot_history(history_ax, hist, k + 1)
         history_ax.axvline(k, color=style.MUTED, lw=.8, ls=":")
-        title.set_text(f"Cantilever  |  iteration {k:02d}/{len(scores) - 1}\n"
+        title.set_text(f"{label}  |  iteration {k:02d}/{len(scores) - 1}\n"
                        f"material = {V:.0%}    |    stiffness = {hist['J'][0] / J:.1%}")
         if k == 0:
-            cax = fig.add_axes([.59, .888, .29, .012])
+            # Anchored to the grid cell, not to the axes box: equal aspect
+            # shrinks the latter by an amount that depends on the domain.
+            box = grid[0, 1].get_position(fig)
+            cax = fig.add_axes([box.x0 + .116 * box.width, box.y1 + .038,
+                                .693 * box.width, .012])
             cb = fig.colorbar(m, cax=cax, orientation="horizontal")
             cb.set_ticks([0, vmax], labels=["low", "high"])
             cb.ax.tick_params(length=0, labelsize=8)
@@ -541,34 +642,38 @@ def figure_animation(p, hist):
         images.append(frame.quantize(palette=palette, dither=Image.Dither.NONE))
     durations = [130] * len(images)
     durations[0], durations[-1] = 900, 2400
-    images[0].save(OUT / "td_optimization.gif", save_all=True,
+    images[0].save(OUT / filename, save_all=True,
                    append_images=images[1:], duration=durations, loop=0,
                    optimize=False, disposal=2)
     plt.close(fig)
-    print(f"wrote td_optimization.gif ({len(images)} solved states)")
+    print(f"wrote {filename} ({len(images)} solved states)")
 
 
 def figure_example(p, chi, hist):
     """Each load case gets its own figure with its actual constraints."""
     import matplotlib.pyplot as plt
-    fig, ax = plt.subplots(figsize=(8.4, 4.2) if p.name == "bridge" else (5.2, 5.2))
+    titles = {"hanging": ("td_hanging.png",
+                          "Hanging bridge: uniformly loaded deck beneath a single-span arch"),
+              "suspended": ("td_suspended.png",
+                            "Suspended deck: the same load hung from three piers on the top edge"),
+              "lbracket": ("td_lbracket.png",
+                           "L-bracket: top clamp, downward traction on the horizontal arm")}
+    filename, name = titles[p.name]
+    fig, ax = plt.subplots(figsize=(5.2, 5.2) if p.name == "lbracket" else (8.4, 4.2))
     plot_design(ax, p, chi)
     annotate_bcs(ax, p, p.mesh[0])
-    name = ("Three-pier bridge: uniformly loaded deck over two spans"
-            if p.name == "bridge" else
-            "L-bracket: top clamp, downward traction on the horizontal arm")
     ax.set_title(name + "\n" +
                  r"$V=%.2f$,  $r_{\min}/h=%.1f$,  $J/J_0=%.2f$  (%d iterations)"
                  % (hist["V"][-1], p.rmin_cells,
                     hist["J"][-1] / hist["J"][0], len(hist["J"]) - 1), fontsize=10)
     fig.tight_layout()
-    filename = "td_bridge.png" if p.name == "bridge" else "td_lbracket.png"
     fig.savefig(OUT / filename, dpi=170, bbox_inches="tight")
     plt.close(fig)
     print(f"wrote {filename}")
 
 
-def figure_bridge_sweep(results):
+def figure_bridge_sweep(results, filename="td_bridge_sweep.png",
+                        subtitle=r"three piers, uniform deck load"):
     """Rows change the length scale, columns change the material budget."""
     import matplotlib.pyplot as plt
     radii = sorted({p.rmin_cells for p, _, _ in results})
@@ -579,19 +684,19 @@ def figure_bridge_sweep(results):
         row, col = radii.index(p.rmin_cells), volumes.index(p.vol_frac)
         ax = axes[row, col]
         plot_design(ax, p, chi)
-        annotate_bcs(ax, p, p.mesh[0])
+        annotate_bcs(ax, p, p.mesh[0], compact=True)
         ax.set_title(r"$V=%.2f$   $r_{\min}/h=%.1f$" % (p.vol_frac, p.rmin_cells)
                      + "\n" + r"$J/J_0=%.2f$   stiffness $=%.0f\%%$"
                      % (hist["J"][-1] / hist["J"][0],
                         100 * hist["J"][0] / hist["J"][-1]), fontsize=10)
     fig.suptitle("One bridge load case, nine final configurations\n"
-                 r"same $180\times60$ cell mesh, three piers, uniform deck load,"
-                 r" material and 120 iterations; evolution rate $2\%$",
+                 r"same $180\times60$ cell mesh, " + subtitle +
+                 r", material and 120 iterations; evolution rate $2\%$",
                  fontsize=13)
     fig.tight_layout(rect=(0, 0, 1, .93), h_pad=3.2, w_pad=2)
-    fig.savefig(OUT / "td_bridge_sweep.png", dpi=150, bbox_inches="tight")
+    fig.savefig(OUT / filename, dpi=150, bbox_inches="tight")
     plt.close(fig)
-    print("wrote td_bridge_sweep.png")
+    print(f"wrote {filename}")
 
 
 def main():
@@ -610,7 +715,8 @@ def main():
     summary = []
 
     def run(p, n_iter=90, record=False):
-        bc_tag = "_3pier_deck" if p.name == "bridge" else ""
+        bc_tag = {"bridge": "_3pier_deck", "hanging": "_2pier_slung",
+                  "suspended": "_3pier_hung"}.get(p.name, "")
         key = f"{p.name}{bc_tag}_{p.nx}x{p.ny}_v{p.vol_frac}_r{p.rmin_cells}_n{n_iter}_record{record}"
         cache = args.cache_dir / (key + ".npz") if args.cache_dir else None
         if cache and cache.exists():
@@ -632,8 +738,13 @@ def main():
                             target_volume=p.vol_frac, rmin_cells=p.rmin_cells,
                             iterations=n_iter, evolution_rate=.02, E=E_SOLID,
                             E_min=E_MIN, nu=NU, model=MODEL,
-                            support_condition=("three pins: ux=uy=0 at x=0, L/2, L"
-                                               if p.name == "bridge" else p.label),
+                            support_condition=(
+                                "three pins: ux=uy=0 at x=0, L/2, L"
+                                if p.name == "bridge" else
+                                "two pins: ux=uy=0 at x=0, L"
+                                if p.name == "hanging" else
+                                "three pins on the top edge: ux=uy=0 at x=0, L/2, L"
+                                if p.name == "suspended" else p.label),
                             total_force=p.f.reshape(-1, 2).sum(axis=0).tolist(),
                             J=J.tolist(), V=V.tolist()))
         return chi, hist
@@ -644,16 +755,34 @@ def main():
     figure_animation(cant, hist)
     figure_convergence(hist)
 
-    bridge_results = []
-    for radius in (2.5, 3.5, 5.5):
-        for volume in (.30, .40, .50):
-            p = bridge()
-            p.rmin_cells, p.vol_frac = radius, volume
-            chi, hist = run(p, n_iter=120)
-            bridge_results.append((p, chi, hist))
-            if radius == 3.5 and volume == .40:
-                figure_example(p, chi, hist)
-    figure_bridge_sweep(bridge_results)
+    for build, filename, subtitle in (
+            (bridge, "td_bridge_sweep.png", r"three piers, uniform deck load"),
+            (hanging_bridge, "td_hanging_sweep.png",
+             r"two end piers, uniform load on the bottom edge")):
+        results = []
+        for radius in (2.5, 3.5, 5.5):
+            for volume in (.30, .40, .50):
+                p = build()
+                p.rmin_cells, p.vol_frac = radius, volume
+                centre = radius == 3.5 and volume == .40
+                # The bridge is the second animated case, so its centre panel
+                # keeps every design and score instead of the final state only.
+                chi, hist = run(p, n_iter=120,
+                                record=centre and p.name == "bridge")
+                results.append((p, chi, hist))
+                if centre and p.name == "bridge":
+                    figure_animation(p, hist, "td_bridge.gif",
+                                     "Three-pier bridge")
+                elif centre:
+                    figure_example(p, chi, hist)
+        figure_bridge_sweep(results, filename, subtitle)
+
+    # The suspended deck is the exact vertical mirror of the three-pier
+    # bridge, so one run at the baseline settings is enough: sweeping it would
+    # reproduce td_bridge_sweep.png upside down.
+    hung = suspended_bridge()
+    chi, hist = run(hung, n_iter=120)
+    figure_example(hung, chi, hist)
 
     bracket = l_bracket()
     chi, hist = run(bracket)
