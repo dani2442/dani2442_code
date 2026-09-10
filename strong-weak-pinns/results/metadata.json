@@ -1,0 +1,40 @@
+{
+  "steps": 3000,
+  "seeds": [
+    0,
+    1,
+    2
+  ],
+  "points": 128,
+  "width": 32,
+  "lr": 0.001,
+  "log_every": 100,
+  "results": "/home/id94ebid/projects/dani2442.github.io/code/strong-weak-pinns/results",
+  "figures": "/home/id94ebid/projects/dani2442.github.io/content/posts/strong-weak-pinns",
+  "plot_only": false,
+  "validate_only": false,
+  "python": "3.13.11",
+  "torch": "2.14.0+cpu",
+  "numpy": "2.5.2",
+  "matplotlib": "3.11.1",
+  "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+  "device": "cpu",
+  "dtype": "float64",
+  "threads": 1,
+  "history_columns": [
+    "step",
+    "training_seconds",
+    "objective",
+    "relative_l2",
+    "relative_energy",
+    "relative_residual"
+  ],
+  "solution_modes": [
+    1,
+    8
+  ],
+  "solution_amplitudes": [
+    1.0,
+    0.1
+  ]
+}

@@ -20,18 +20,25 @@ design domain.  At every iteration we
 Step 4 is the Lagrangian form of the volume constraint: for L = J + l |Omega|
 the change under hole nucleation is |B|(D_T J - l), so cells with
 D_T J < l should be voided, and the multiplier l is exactly the V_k-quantile of
-the filtered gradient.  Steps 3-4 with the sensitivity averaged over two
-iterations are the BESO update of Huang & Xie, with the topological derivative
-in place of their heuristic sensitivity.
+the filtered gradient. Steps 3-4 follow the BESO update of Huang & Xie, using
+recursive temporal averaging and the topological derivative in place of their
+heuristic sensitivity.
 
 Outputs (written to ../../content/posts/topological_derivative/):
     td_mesh.png        the triangulation and boundary conditions
     td_gradient.png    the topological gradient on the full domain
-    td_steps.png       five steps of the optimization + convergence history
-    td_examples.png    final designs for two further load cases
+    td_optimization.gif  actual designs, filtered sensitivities and history
+    td_convergence.png   static convergence history
+    td_bridge.png        simply supported beam with supports and traction
+    td_lbracket.png      L-bracket with clamp and traction
+    td_bridge_sweep.png  bridge designs across volume and filter radius
+    td_results.json      parameters and numerical histories behind the figures
 """
 
 from dataclasses import dataclass, field
+from pathlib import Path
+import argparse
+import json
 
 import numpy as np
 import scipy.sparse as sp
@@ -41,7 +48,7 @@ import style
 
 E_SOLID, E_MIN, NU = 1.0, 1e-6, 0.3
 MODEL = "plane_stress"
-OUT = "../../content/posts/topological_derivative/"
+OUT = Path(__file__).resolve().parents[2] / "content/posts/topological_derivative"
 
 
 # -----------------------------------------------------------------------------
@@ -217,7 +224,13 @@ def solve_state(p, chi):
 
 
 def optimize(p, n_iter=90, evol_rate=0.02, snapshots=(0.90, 0.75, 0.60, 0.50),
-             verbose=True):
+             verbose=True, record=False):
+    """Return final design, selected snapshots and history of solved states.
+
+    With record=True, also retain each design and the filtered, temporally
+    averaged score used for its next update. The final score is evaluated on
+    the final design, so GIF frames never pair a design with a stale field.
+    """
     _, _, cell, _ = p.mesh
     nc = p.nx * p.ny
     hx, hy = p.h
@@ -227,6 +240,8 @@ def optimize(p, n_iter=90, evol_rate=0.02, snapshots=(0.90, 0.75, 0.60, 0.50),
     chi = (~p.void).astype(float)
     g_prev = None
     hist = {"J": [], "V": []}
+    if record:
+        hist.update(chi=[], G=[])
     frames, wanted = [], list(snapshots)
 
     # Cell areas are all equal on a uniform grid, so volume fractions are counts.
@@ -244,6 +259,9 @@ def optimize(p, n_iter=90, evol_rate=0.02, snapshots=(0.90, 0.75, 0.60, 0.50),
         V = chi.sum() / design_area
         hist["J"].append(J)
         hist["V"].append(V)
+        if record:
+            hist["chi"].append(chi.copy())
+            hist["G"].append(g.copy())
         if verbose and (k % 10 == 0 or k == n_iter - 1):
             print(f"   it {k:3d}   V = {V:5.3f}   J = {J:.6g}")
 
@@ -263,9 +281,15 @@ def optimize(p, n_iter=90, evol_rate=0.02, snapshots=(0.90, 0.75, 0.60, 0.50),
         chi_new[order[:max(0, n_keep - n_forced)]] = 1.0
         chi = chi_new
 
-    u, J, _ = solve_state(p, chi)
+    u, J, g_tri = solve_state(p, chi)
     hist["J"].append(J)
     hist["V"].append(chi.sum() / design_area)
+    if record:
+        g_cell = np.zeros(nc)
+        np.add.at(g_cell, cell, 0.5 * g_tri)
+        g = H @ (g_cell * chi)
+        hist["chi"].append(chi.copy())
+        hist["G"].append(g if g_prev is None else 0.5 * (g + g_prev))
     frames.append((n_iter, hist["V"][-1], J, chi.copy()))
     if verbose:
         print(f"   final  V = {hist['V'][-1]:5.3f}   J = {J:.6g}")
@@ -283,8 +307,9 @@ def _tri(p):
 
 def _bare(ax, p):
     ax.set_aspect("equal")
-    ax.set_xlim(-0.05 * p.lx, 1.05 * p.lx)
-    ax.set_ylim(-0.07 * p.ly, 1.07 * p.ly)
+    ax.set_xlim(-0.13 * p.ly, p.lx + 0.23 * p.ly)
+    ax.set_ylim(-0.32 * p.ly if p.name == "mbb" else -0.05 * p.ly,
+                1.36 * p.ly if p.name == "mbb" else 1.16 * p.ly)
     ax.grid(False)
     ax.set_xticks([])
     ax.set_yticks([])
@@ -322,18 +347,65 @@ def plot_field(ax, p, g_tri, clip=98.0):
 
 
 def annotate_bcs(ax, p, nodes):
-    """Mark the clamped dofs and the loaded patch."""
+    """Draw displacement constraints separately from the prescribed traction.
+
+    The beam has a pin and a roller, not two clamps. Its point constraints
+    belong to the discrete benchmark; Gamma_D labels constrained components.
+    Arrows illustrate traction direction, not the unequal nodal quadrature
+    weights at the endpoints of a uniformly loaded patch.
+    """
+    from matplotlib.patches import Polygon, Circle
     fixed_nodes = np.unique(np.asarray(p.fixed) // 2)
-    ax.plot(nodes[fixed_nodes, 0], nodes[fixed_nodes, 1], "|", ms=7, mew=1.6,
-            color=style.INK_2, zorder=5)
+    if p.name == "mbb":
+        for x, roller in ((0.0, False), (p.lx, True)):
+            ax.add_patch(Polygon([(x, 0), (x - .065, -.11), (x + .065, -.11)],
+                                 facecolor=style.SURFACE, edgecolor=style.INK_2,
+                                 lw=1.3, zorder=6))
+            ground = -.13
+            if roller:
+                for dx in (-.037, .037):
+                    ax.add_patch(Circle((x + dx, -.135), .019,
+                                        facecolor=style.SURFACE,
+                                        edgecolor=style.INK_2, lw=1, zorder=6))
+                ground = -.17
+            ax.plot([x - .09, x + .09], [ground, ground], color=style.INK_2, lw=1)
+            ax.text(x, -.21, r"$\Gamma_D:\ u_y=0$" if roller
+                    else r"$\Gamma_D:\ u_x=u_y=0$", ha="center", va="top",
+                    fontsize=8, color=style.INK_2)
+    else:
+        xy = nodes[fixed_nodes]
+        ax.plot(xy[:, 0], xy[:, 1], color=style.INK_2, lw=2.5, zorder=5)
+        sample = xy[np.linspace(0, len(xy) - 1, min(13, len(xy)), dtype=int)]
+        for x, y in sample:
+            dx, dy = (-.025, -.025) if p.name == "cantilever" else (.025, .025)
+            ax.plot([x, x + dx], [y, y + dy], color=style.INK_2, lw=1, zorder=5)
+        if p.name == "cantilever":
+            ax.text(-.07, .5 * p.ly, r"$\Gamma_D$", ha="right", va="center",
+                    color=style.INK_2, fontsize=10)
+        else:
+            ax.text(.2, 1.07, r"$\Gamma_D:\ u=0$", ha="center",
+                    color=style.INK_2, fontsize=10)
     loaded = np.unique(np.where(np.abs(p.f) > 0)[0] // 2)
-    fx = p.f[2 * loaded]
-    fy = p.f[2 * loaded + 1]
-    scale = 0.22 * p.ly / max(np.hypot(fx, fy).max(), 1e-30)
-    for n, gx, gy in zip(loaded, fx, fy):
-        ax.annotate("", xy=nodes[n], xytext=nodes[n] - scale * np.array([gx, gy]),
-                    arrowprops=dict(arrowstyle="-|>", lw=1.3, color=style.ORANGE,
-                                    mutation_scale=8), zorder=6)
+    xy = nodes[loaded]
+    ax.plot(xy[:, 0], xy[:, 1], color=style.ORANGE, lw=3, zorder=6)
+    if p.name == "mbb":
+        for x in np.linspace(xy[:, 0].min(), xy[:, 0].max(), 3):
+            ax.annotate("", xy=(x, p.ly), xytext=(x, p.ly + .24),
+                        arrowprops=dict(arrowstyle="-|>", lw=1.4,
+                                        color=style.ORANGE), zorder=7)
+        ax.text(p.lx / 2, p.ly + .28, r"$\Gamma_N:\ g\downarrow$",
+                ha="center", color=style.ORANGE, fontsize=10)
+    else:
+        center = xy[:, 1].mean()
+        # A leader identifies the loaded vertical patch; the adjacent arrow
+        # displays the (tangential) downward traction without hiding the patch.
+        ax.plot([p.lx, p.lx + .10], [center, center], lw=.9, color=style.ORANGE)
+        ax.annotate("", xy=(p.lx + .10, center - .13),
+                    xytext=(p.lx + .10, center + .13),
+                    arrowprops=dict(arrowstyle="-|>", lw=1.5,
+                                    color=style.ORANGE), zorder=7)
+        ax.text(p.lx + .10, center + .16, r"$\Gamma_N$", ha="center",
+                color=style.ORANGE, fontsize=10)
 
 
 def figure_mesh():
@@ -345,16 +417,12 @@ def figure_mesh():
     ax.triplot(_tri(p), lw=0.55, color=style.MUTED, alpha=0.55)
     annotate_bcs(ax, p, nodes)
     _bare(ax, p)
-    ax.text(-0.035 * p.lx, 0.5 * p.ly, r"$\Gamma_D$", ha="right", va="center",
-            color=style.INK_2, fontsize=11)
-    ax.text(p.lx, 0.5 * p.ly + 0.27 * p.ly, r"$\Gamma_N$", ha="center", va="bottom",
-            color=style.ORANGE, fontsize=11)
     ax.set_title(r"Design domain $\Omega_0$, shown at $24\times12$ cells "
                  r"(%d nodes, %d triangles)" % (len(nodes), len(tris)) + "\n"
                  r"the runs below use $150\times75$ cells",
                  color=style.INK, fontsize=10)
     fig.tight_layout()
-    fig.savefig(OUT + "td_mesh.png", dpi=170, bbox_inches="tight")
+    fig.savefig(OUT / "td_mesh.png", dpi=170, bbox_inches="tight")
     plt.close(fig)
     print("wrote td_mesh.png")
 
@@ -365,6 +433,7 @@ def figure_gradient(p):
     _, _, g_tri = solve_state(p, np.ones(p.nx * p.ny))
     fig, ax = plt.subplots(figsize=(7.2, 3.5))
     m = plot_field(ax, p, g_tri)
+    annotate_bcs(ax, p, p.mesh[0])
     cb = fig.colorbar(m, ax=ax, fraction=0.030, pad=0.02)
     cb.set_label(r"$D_TJ(\hat x)$", color=style.INK_2)
     cb.outline.set_visible(False)
@@ -373,78 +442,203 @@ def figure_gradient(p):
                  "\n" r"dark $=$ expensive to perforate,  light $=$ nearly free",
                  color=style.INK)
     fig.tight_layout()
-    fig.savefig(OUT + "td_gradient.png", dpi=170, bbox_inches="tight")
+    fig.savefig(OUT / "td_gradient.png", dpi=170, bbox_inches="tight")
     plt.close(fig)
     print("wrote td_gradient.png")
 
 
-def figure_steps(p, frames, hist):
-    """Five steps of the optimization plus the convergence history."""
-    import matplotlib.pyplot as plt
-    fig, axes = plt.subplots(3, 2, figsize=(10.0, 7.6))
-    flat = axes.ravel()
-    J0 = hist["J"][0]
-    for ax, (k, V, J, chi) in zip(flat, frames):
-        plot_design(ax, p, chi)
-        ax.set_title(r"step %d:   $|\Omega|/|\Omega_0| = %.2f$,   $J/J_0 = %.2f$"
-                     % (k, V, J / J0), color=style.INK, fontsize=10)
-
-    ax = flat[5]
-    ax.grid(True)
-    it = np.arange(len(hist["J"]))
-    ax.plot(it, hist["V"], color=style.BLUE, label=r"volume  $|\Omega_k|/|\Omega_0|$")
-    ax.plot(it, J0 / np.asarray(hist["J"]), color=style.ORANGE,
-            label=r"stiffness  $J_0/J(\Omega_k)$")
-    ks = [f[0] for f in frames]
-    ax.plot(ks, [hist["V"][k] for k in ks], "o", color=style.BLUE,
-            markeredgecolor=style.SURFACE, markeredgewidth=1.0, zorder=5)
-    ax.plot(ks, [J0 / hist["J"][k] for k in ks], "o", color=style.ORANGE,
-            markeredgecolor=style.SURFACE, markeredgewidth=1.0, zorder=5)
+def plot_history(ax, hist, stop=None):
+    """Plot only states already reached, including the initial full domain."""
+    stop = len(hist["J"]) if stop is None else stop
+    it = np.arange(stop)
+    ax.plot(it, hist["V"][:stop], color=style.BLUE,
+            label=r"material fraction $|\Omega_k|/|\Omega_0|$")
+    ax.plot(it, hist["J"][0] / np.asarray(hist["J"][:stop]), color=style.ORANGE,
+            label=r"relative stiffness $J_0/J_k$")
+    ax.set_xlim(0, len(hist["J"]) - 1)
+    ax.set_ylim(0, 1.05)
     ax.set_xlabel("iteration")
-    ax.set_ylim(0.0, 1.05)
-    ax.set_title("Convergence (both scales dimensionless)", fontsize=10)
-    ax.legend(loc="lower left", fontsize=8.5)
-    fig.tight_layout()
-    fig.savefig(OUT + "td_steps.png", dpi=170, bbox_inches="tight")
-    plt.close(fig)
-    print("wrote td_steps.png")
+    ax.legend(loc="lower left", fontsize=8)
 
 
-def figure_examples(results):
-    """Final designs for the additional load cases."""
+def figure_convergence(hist):
     import matplotlib.pyplot as plt
-    ratios = [p.lx / p.ly for p, _, _ in results]
-    fig, axes = plt.subplots(1, len(results), figsize=(2.1 * sum(ratios) + 1.4, 3.3),
-                             gridspec_kw={"width_ratios": ratios})
-    for ax, (p, chi, hist) in zip(np.atleast_1d(axes), results):
-        plot_design(ax, p, chi)
-        ax.set_title("%s\n" % p.label +
-                     r"$|\Omega|/|\Omega_0| = %.2f$,   $J/J_0 = %.2f$"
-                     % (hist["V"][-1], hist["J"][-1] / hist["J"][0]),
-                     color=style.INK, fontsize=10)
+    fig, ax = plt.subplots(figsize=(7.2, 2.8))
+    plot_history(ax, hist)
+    ax.set_title("Cantilever: material use and stiffness")
     fig.tight_layout()
-    fig.savefig(OUT + "td_examples.png", dpi=170, bbox_inches="tight")
+    fig.savefig(OUT / "td_convergence.png", dpi=170, bbox_inches="tight")
     plt.close(fig)
-    print("wrote td_examples.png")
+
+
+def figure_animation(p, hist):
+    """Render every solved iteration, with a fixed colour scale across frames."""
+    import matplotlib.pyplot as plt
+    from matplotlib.colors import PowerNorm
+    from PIL import Image
+
+    fig = plt.figure(figsize=(9.6, 5.6), dpi=110)
+    grid = fig.add_gridspec(2, 2, height_ratios=[1.65, 1], hspace=.35, wspace=.15)
+    design_ax, field_ax = fig.add_subplot(grid[0, 0]), fig.add_subplot(grid[0, 1])
+    history_ax = fig.add_subplot(grid[1, :])
+    fig.subplots_adjust(left=.06, right=.96, bottom=.09, top=.85)
+    title = fig.suptitle("", fontsize=12, y=.98)
+    scores = np.asarray(hist["G"])
+    positive = scores[scores > 0]
+    vmax = np.percentile(positive, 98)
+    norm = PowerNorm(.45, vmin=0, vmax=vmax, clip=True)
+    # A shared palette keeps the background and colour ramp stable in the GIF.
+    from matplotlib.colors import to_rgb
+    colors = [to_rgb(c) for c in (style.SURFACE, style.INK, style.INK_2,
+                                  style.ORANGE, style.BLUE, style.SOLID, style.GRID)]
+    colors += [tuple(c[:3]) for c in style.SEQ(np.linspace(0, 1, 160))]
+    colors += [(x, x, x) for x in np.linspace(0, 1, 64)]
+    colors += [to_rgb(style.SURFACE)] * (256 - len(colors))
+    palette = Image.new("P", (1, 1))
+    palette.putpalette(np.rint(255 * np.asarray(colors)).astype("uint8").ravel().tolist())
+    images = []
+    for k, (chi, G, J, V) in enumerate(zip(hist["chi"], scores, hist["J"], hist["V"])):
+        design_ax.clear()
+        field_ax.clear()
+        history_ax.clear()
+        plot_design(design_ax, p, chi)
+        # Cell values correspond to the two triangles sharing each quad.
+        m = field_ax.imshow(G.reshape(p.nx, p.ny).T, origin="lower",
+                            extent=(0, p.lx, 0, p.ly), cmap=style.SEQ, norm=norm,
+                            interpolation="nearest")
+        outline_domain(field_ax, p)
+        _bare(field_ax, p)
+        for ax in (design_ax, field_ax):
+            annotate_bcs(ax, p, p.mesh[0])
+        design_ax.set_title("Material on the fixed triangular mesh", fontsize=10)
+        field_ax.set_title(r"Filtered update score $G_k$", fontsize=10)
+        plot_history(history_ax, hist, k + 1)
+        history_ax.axvline(k, color=style.MUTED, lw=.8, ls=":")
+        title.set_text(f"Cantilever  |  iteration {k:02d}/{len(scores) - 1}\n"
+                       f"material = {V:.0%}    |    stiffness = {hist['J'][0] / J:.1%}")
+        if k == 0:
+            cax = fig.add_axes([.59, .888, .29, .012])
+            cb = fig.colorbar(m, cax=cax, orientation="horizontal")
+            cb.set_ticks([0, vmax], labels=["low", "high"])
+            cb.ax.tick_params(length=0, labelsize=8)
+            cb.outline.set_visible(False)
+        fig.canvas.draw()
+        frame = Image.fromarray(np.asarray(fig.canvas.buffer_rgba())[:, :, :3])
+        images.append(frame.quantize(palette=palette, dither=Image.Dither.NONE))
+    durations = [130] * len(images)
+    durations[0], durations[-1] = 900, 2400
+    images[0].save(OUT / "td_optimization.gif", save_all=True,
+                   append_images=images[1:], duration=durations, loop=0,
+                   optimize=False, disposal=2)
+    plt.close(fig)
+    print(f"wrote td_optimization.gif ({len(images)} solved states)")
+
+
+def figure_example(p, chi, hist):
+    """Each load case gets its own figure with its actual constraints."""
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots(figsize=(8.4, 4.2) if p.name == "mbb" else (5.2, 5.2))
+    plot_design(ax, p, chi)
+    annotate_bcs(ax, p, p.mesh[0])
+    name = "Bridge-like beam: pin, roller and central traction" if p.name == "mbb" else "L-bracket: top clamp and downward traction"
+    ax.set_title(name + "\n" +
+                 r"$V=%.2f$,  $r_{\min}/h=%.1f$,  $J/J_0=%.2f$  (%d iterations)"
+                 % (hist["V"][-1], p.rmin_cells,
+                    hist["J"][-1] / hist["J"][0], len(hist["J"]) - 1), fontsize=10)
+    fig.tight_layout()
+    filename = "td_bridge.png" if p.name == "mbb" else "td_lbracket.png"
+    fig.savefig(OUT / filename, dpi=170, bbox_inches="tight")
+    plt.close(fig)
+    print(f"wrote {filename}")
+
+
+def figure_bridge_sweep(results):
+    """Rows change the length scale, columns change the material budget."""
+    import matplotlib.pyplot as plt
+    radii = sorted({p.rmin_cells for p, _, _ in results})
+    volumes = sorted({p.vol_frac for p, _, _ in results})
+    fig, axes = plt.subplots(len(radii), len(volumes), figsize=(13.6, 8.5),
+                             squeeze=False)
+    for p, chi, hist in results:
+        row, col = radii.index(p.rmin_cells), volumes.index(p.vol_frac)
+        ax = axes[row, col]
+        plot_design(ax, p, chi)
+        annotate_bcs(ax, p, p.mesh[0])
+        ax.set_title(r"$V=%.2f$   $r_{\min}/h=%.1f$" % (p.vol_frac, p.rmin_cells)
+                     + "\n" + r"$J/J_0=%.2f$   stiffness $=%.0f\%%$"
+                     % (hist["J"][-1] / hist["J"][0],
+                        100 * hist["J"][0] / hist["J"][-1]), fontsize=10)
+    fig.suptitle("One bridge load case, nine final configurations\n"
+                 r"same $180\times60$ cell mesh, load, material and 120 iterations; evolution rate $2\%$",
+                 fontsize=13)
+    fig.tight_layout(rect=(0, 0, 1, .93), h_pad=2, w_pad=2)
+    fig.savefig(OUT / "td_bridge_sweep.png", dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print("wrote td_bridge_sweep.png")
 
 
 def main():
+    global OUT
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output-dir", type=Path, default=OUT)
+    parser.add_argument("--cache-dir", type=Path,
+                        help="reuse saved numerical runs when adjusting figure layouts")
+    args = parser.parse_args()
+    OUT = args.output_dir
+    OUT.mkdir(parents=True, exist_ok=True)
+    if args.cache_dir:
+        args.cache_dir.mkdir(parents=True, exist_ok=True)
     style.use()
     figure_mesh()
+    summary = []
 
-    print("cantilever:")
+    def run(p, n_iter=90, record=False):
+        key = f"{p.name}_{p.nx}x{p.ny}_v{p.vol_frac}_r{p.rmin_cells}_n{n_iter}_record{record}"
+        cache = args.cache_dir / (key + ".npz") if args.cache_dir else None
+        if cache and cache.exists():
+            with np.load(cache) as data:
+                hist = {k: data[k] for k in ("J", "V", "chi", "G") if k in data}
+                chi = data["final"]
+            print(f"loaded {key}")
+        else:
+            print(f"{key}:")
+            chi, _, hist = optimize(p, n_iter=n_iter, record=record, snapshots=())
+            if cache:
+                np.savez_compressed(cache, final=chi, **hist)
+        J = np.asarray(hist["J"])
+        V = np.asarray(hist["V"])
+        assert np.isfinite(J).all() and (J > 0).all()
+        assert abs(V[-1] - p.vol_frac) <= 1 / (~p.void).sum()
+        assert np.all(chi[p.keep & ~p.void] == 1) and np.all(chi[p.void] == 0)
+        summary.append(dict(name=p.name, nx=p.nx, ny=p.ny, lx=p.lx, ly=p.ly,
+                            target_volume=p.vol_frac, rmin_cells=p.rmin_cells,
+                            iterations=n_iter, evolution_rate=.02, E=E_SOLID,
+                            E_min=E_MIN, nu=NU, model=MODEL,
+                            total_force=p.f.reshape(-1, 2).sum(axis=0).tolist(),
+                            J=J.tolist(), V=V.tolist()))
+        return chi, hist
+
     cant = cantilever()
     figure_gradient(cant)
-    chi, frames, hist = optimize(cant)
-    figure_steps(cant, frames, hist)
+    _, hist = run(cant, record=True)
+    figure_animation(cant, hist)
+    figure_convergence(hist)
 
-    extra = []
-    for builder in (mbb_beam, l_bracket):
-        p = builder()
-        print(f"{p.name}:")
-        chi_p, _, hist_p = optimize(p, snapshots=())
-        extra.append((p, chi_p, hist_p))
-    figure_examples(extra)
+    bridge_results = []
+    for radius in (2.5, 3.5, 5.5):
+        for volume in (.30, .40, .50):
+            p = mbb_beam()
+            p.rmin_cells, p.vol_frac = radius, volume
+            chi, hist = run(p, n_iter=120)
+            bridge_results.append((p, chi, hist))
+            if radius == 3.5 and volume == .40:
+                figure_example(p, chi, hist)
+    figure_bridge_sweep(bridge_results)
+
+    bracket = l_bracket()
+    chi, hist = run(bracket)
+    figure_example(bracket, chi, hist)
+    (OUT / "td_results.json").write_text(json.dumps(summary, indent=2) + "\n")
 
 
 if __name__ == "__main__":

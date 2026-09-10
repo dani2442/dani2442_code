@@ -5,7 +5,7 @@ minimization"*. Plane linear elasticity is discretized with P1 (constant-strain)
 triangles on a triangulated design domain, and the topological derivative of the
 compliance drives a hole-nucleating topology optimization. Only `numpy` +
 `scipy.sparse` + `matplotlib` — no FEM library, no mesh generator, no
-optimization package.
+optimization package. Pillow encodes the optimization animation as a GIF.
 
 The quantity everything turns on is, for a traction-free circular hole of radius
 `eps` nucleated at `x` in a plane-elastic body,
@@ -39,24 +39,58 @@ plane stress the prefactor collapses to `1/E`, in plane strain to `(1-nu^2)/E`.
   machine precision.
 
 - `topopt.py` — compliance minimization for three load cases (cantilever, MBB
-  beam, L-bracket) and all four figures of the post.
+  beam, L-bracket), a GIF of every cantilever iteration, separate annotated
+  load-case figures, and a nine-run bridge parameter comparison.
 
 - `style.py` — one documented palette and matplotlib settings shared by every
   figure.
 
 ## Run
 
-Both scripts resolve their output path relative to the working directory, so
-run them from **inside** this directory:
+Install `numpy`, `scipy`, `matplotlib`, and `pillow` in your Python environment.
+With the repository's `code/.venv` environment, run:
 
 ```bash
 # from code/topological_derivative/ (uses the code/ uv venv)
 cd code/topological_derivative
 ../.venv/bin/python validate.py   #  ~1 min
-../.venv/bin/python topopt.py     #  ~4 min
+../.venv/bin/python topopt.py --cache-dir /tmp/td-post-runs  # several minutes
 ```
 
-Figures are written to `../../content/posts/topological_derivative/`.
+Figures are written to `content/posts/topological_derivative/` in the repository.
+`topopt.py` resolves that location from its own file, so it can also be run from
+the repository root. `validate.py` still expects this working directory.
+Use `--output-dir PATH` with `topopt.py` to write preview assets elsewhere.
+The optional cache stores numerical runs as compressed NumPy arrays, allowing
+figures to be redrawn without solving again. Use a fresh cache directory after
+changing the solver, material, load, or update rule.
+
+Generated optimization assets:
+
+| File | Content |
+|---|---|
+| `td_mesh.png` | Cantilever mesh, clamped edge, and loaded patch. |
+| `td_gradient.png` | Raw topological derivative on the full-material cantilever, available separately from the animation. |
+| `td_optimization.gif` | 91 solved states (iterations 0–90), each showing material, the filtered update score, and stiffness/volume history. |
+| `td_convergence.png` | Static cantilever history. |
+| `td_bridge.png` | Baseline beam with the actual pin, roller, and central traction. |
+| `td_lbracket.png` | L-bracket with its top clamp and tip traction. |
+| `td_bridge_sweep.png` | Nine beam configurations: columns vary `V = 0.30, 0.40, 0.50`; rows vary `rmin/h = 2.5, 3.5, 5.5`. |
+| `td_results.json` | Parameters, total force, and full compliance/volume histories for all eleven runs. |
+
+The GIF uses recorded solver states, including a fresh state solve after the
+last update. Its sensitivity is the cone-filtered, recursively averaged score
+used by the update, including its extension into void cells. One shared colour
+scale is gamma-compressed and clipped at the 98th percentile of positive scores
+across the run. It is an animation of material changes on a fixed mesh.
+
+Every beam run uses the same `180 x 60` cell mesh, central downward load of
+total magnitude 1, protected load/support cells, plane stress, `E = 1`,
+`nu = 0.3`, `E_min = 1e-6`, evolution rate `0.02`, and 120 updates. The
+baseline is `V = 0.40`, `rmin/h = 3.5`; all ratios use the same full-material
+compliance `J0 = 14.0330`. The MBB beam is a simplified bridge-like benchmark.
+Its discrete corner pin/roller constraints are distinct from the continuum
+clamped-boundary assumptions in the post's theorem.
 
 ## Verification results
 
@@ -103,8 +137,9 @@ removal, and the bracket `4 sigma:sigma - (tr sigma)^2 = 3(s_I^2 + s_II^2) -
   (2006) gives the rigorous two-phase counterpart for an inclusion of finite
   contrast.
 - *The update itself.* Thresholding the filtered gradient at the volume quantile,
-  with the sensitivity averaged over two iterations, is the BESO update of Huang
-  & Xie. It is a greedy descent on the topological optimality condition, not a
+  with temporal sensitivity averaging, follows the BESO update of Huang
+  & Xie. Here the previously averaged score is stored, so the smoothing is
+  recursive. It is a greedy descent on the topological optimality condition, not a
   convergent algorithm, and the continuum problem has no minimizer without the
   perimeter- or filter-type regularization that the cone filter supplies.
 
