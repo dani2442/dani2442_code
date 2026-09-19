@@ -74,7 +74,8 @@ def draw_plain_domain(ax, bean, poly, fill="#f4f3f0"):
 
 
 def figure_walk(bean, x0, trace, exit_pt, out, name="fk_bean_walk.gif",
-                n_frames=66, n_hold=10, stride=5, omega_at=(-0.70, -0.34)):
+                n_frames=66, n_hold=10, stride=5, omega_at=(-0.70, -0.34),
+                d_omega_at=(0.80, -0.55)):
     """One Brownian path leaving the bean: the picture behind $u(x)=E[g(B_tau)]$.
 
     Deliberately bare -- the domain, the starting point, the path, the exit
@@ -89,7 +90,9 @@ def figure_walk(bean, x0, trace, exit_pt, out, name="fk_bean_walk.gif",
     cuts = np.unique(np.linspace(2, len(t), n_frames).astype(int))
     palette = _gif_palette()
 
-    fig = plt.figure(figsize=(6.6, 4.0), dpi=125)
+    # Small figure, high dpi: same pixel size as before, but every point-sized
+    # thing (labels, markers, the path) is much larger relative to the bean.
+    fig = plt.figure(figsize=(3.85, 2.33), dpi=214)
     ax = fig.add_axes([0.01, 0.01, 0.98, 0.98])
 
     images = []
@@ -99,18 +102,25 @@ def figure_walk(bean, x0, trace, exit_pt, out, name="fk_bean_walk.gif",
         draw_plain_domain(ax, bean, poly)
         ax.annotate(r"$\Omega$", omega_at, ha="center", va="center",
                     fontsize=15, color=style.MUTED, zorder=3)
+        # Each label wears the colour of the thing it names: the boundary curve,
+        # the start dot, the exit dot.
+        ax.annotate(r"$\partial\Omega$", d_omega_at, ha="center", va="center",
+                    fontsize=14, color=style.INK_2, zorder=6,
+                    path_effects=HALO)
         ax.plot(t[:m, 0], t[:m, 1], lw=0.85, color=style.PATH, alpha=0.9,
                 zorder=5, solid_joinstyle="round")
-        # The start carries no label: the path doubles back over it, and any
-        # leader long enough to escape the tangle drew more attention than the
-        # dot it pointed at.
+        # The path doubles back over the start, so the label needs the halo to
+        # stay readable where the tangle is densest.
         ax.plot(*x0, "o", ms=7.0, mfc=style.INK, mec=style.SURFACE, mew=1.5,
                 zorder=8)
+        ax.annotate(r"$x$", x0, xytext=(-13, -11), textcoords="offset points",
+                    ha="right", va="top", color=style.INK, fontsize=14,
+                    zorder=9, path_effects=HALO)
         if done:
             ax.plot(*exit_pt, "o", ms=7.5, mfc=style.ORANGE,
                     mec=style.SURFACE, mew=1.5, zorder=8)
-            ax.annotate(r"$B_\tau$", exit_pt, xytext=(15, 1),
-                        textcoords="offset points", ha="left", va="center",
+            ax.annotate(r"$B_\tau$", exit_pt, xytext=(-15, 1),
+                        textcoords="offset points", ha="right", va="center",
                         color=style.ORANGE, fontsize=14, zorder=9,
                         path_effects=HALO)
         else:
