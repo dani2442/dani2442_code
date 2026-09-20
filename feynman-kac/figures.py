@@ -110,11 +110,13 @@ def figure_walk(bean, x0, trace, exit_pt, out, name="fk_bean_walk.gif",
         ax.plot(t[:m, 0], t[:m, 1], lw=0.85, color=style.PATH, alpha=0.9,
                 zorder=5, solid_joinstyle="round")
         # The path doubles back over the start, so the label needs the halo to
-        # stay readable where the tangle is densest.
-        ax.plot(*x0, "o", ms=7.0, mfc=style.INK, mec=style.SURFACE, mew=1.5,
+        # stay readable where the tangle is densest.  Start and exit share one
+        # colour: they are the two ends of the same object, $B_0 = x$ and
+        # $B_\tau$.
+        ax.plot(*x0, "o", ms=7.0, mfc=style.ORANGE, mec=style.SURFACE, mew=1.5,
                 zorder=8)
         ax.annotate(r"$x$", x0, xytext=(-13, -11), textcoords="offset points",
-                    ha="right", va="top", color=style.INK, fontsize=14,
+                    ha="right", va="top", color=style.ORANGE, fontsize=14,
                     zorder=9, path_effects=HALO)
         if done:
             ax.plot(*exit_pt, "o", ms=7.5, mfc=style.ORANGE,
@@ -134,14 +136,70 @@ def figure_walk(bean, x0, trace, exit_pt, out, name="fk_bean_walk.gif",
             np.asarray(fig.canvas.buffer_rgba())[:, :, :3]
         ).quantize(palette=palette, dither=Image.Dither.NONE))
 
+    # A single, uniform rate for the walk itself: an opening slow-down read as
+    # a stutter rather than as an easing-in.
     durations = [70] * len(images)
-    durations[:5] = [320] * 5
     durations[-n_hold:] = [90] * n_hold
     durations[-1] = 2800
     images[0].save(out / name, save_all=True, append_images=images[1:],
                    duration=durations, loop=0, optimize=False, disposal=2)
     plt.close(fig)
     print(f"wrote {name} ({len(images)} frames)")
+
+
+# -----------------------------------------------------------------------------
+# 0b. The same frame, solved: the FEM field on its mesh
+# -----------------------------------------------------------------------------
+def figure_fem(bean, pts, tri, u, x0, out, name="fk_bean_fem.png",
+               figsize=(3.85, 2.33), dpi=214, omega_at=(-0.70, -0.34),
+               d_omega_at=(0.80, -0.55)):
+    """The finite element solution on its triangulation, labelled as the GIF is.
+
+    Deliberately the same frame, figure size and dpi as `figure_walk`, so the
+    two sit side by side in the post at the same pixel size: the same bean, once
+    with a single path crossing it and once with the field that path is
+    estimating.  The three marks the animation carries are carried here too, at
+    the same positions -- `Omega`, `dOmega`, and the starting point `x` in its
+    orange -- and nothing else: no colourbar, no title, no path.  The diverging
+    scale is the one the rest of the post uses (`NORM`), so the colours are
+    already calibrated by the panel that does carry a colourbar.
+    """
+    poly = bean.boundary(900)
+    fig = plt.figure(figsize=figsize, dpi=dpi)
+    ax = fig.add_axes([0.01, 0.01, 0.98, 0.98])
+
+    ax.tripcolor(pts[:, 0], pts[:, 1], tri, u, cmap=style.DIV, norm=NORM,
+                 shading="gouraud", zorder=2, rasterized=True)
+    ax.triplot(pts[:, 0], pts[:, 1], tri, color=style.INK, lw=0.3, alpha=0.28,
+               zorder=3)
+    ax.plot(poly[:, 0], poly[:, 1], color=style.INK_2, lw=2.4, zorder=4,
+            solid_joinstyle="round")
+
+    # `Omega` sits on the cold end of the ramp, which is far too dark to take
+    # the GIF's gray, so it is the one mark whose colour has to change: surface
+    # white against the deep blue.  `dOmega` labels the curve from outside the
+    # bean, on the same background as in the GIF, so it keeps its ink.
+    ax.annotate(r"$\Omega$", omega_at, ha="center", va="center",
+                fontsize=15, color=style.SURFACE, zorder=6)
+    ax.annotate(r"$\partial\Omega$", d_omega_at, ha="center", va="center",
+                fontsize=14, color=style.INK_2, zorder=6, path_effects=HALO)
+    ax.plot(*x0, "o", ms=7.0, mfc=style.ORANGE, mec=style.SURFACE, mew=1.5,
+            zorder=8)
+    ax.annotate(r"$x$", x0, xytext=(-13, -11), textcoords="offset points",
+                ha="right", va="top", color=style.ORANGE, fontsize=14,
+                zorder=9, path_effects=HALO)
+
+    bx0, bx1, by0, by1 = bean.bbox
+    ax.set_xlim(bx0 - 0.04, bx1 + 0.04)
+    ax.set_ylim(by0 - 0.04, by1 + 0.04)
+    ax.set_aspect("equal")
+    ax.set_axis_off()
+
+    fig.canvas.draw()
+    Image.fromarray(
+        np.asarray(fig.canvas.buffer_rgba())[:, :, :3]).save(out / name)
+    plt.close(fig)
+    print(f"wrote {name}")
 
 
 # -----------------------------------------------------------------------------

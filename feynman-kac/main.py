@@ -12,6 +12,7 @@ import time
 
 import numpy as np
 
+import fem
 import figures
 import style
 from domain import Bean
@@ -26,6 +27,9 @@ SEED = 20250918
 
 WALK_DT = 5e-5                 # the single path of the opening figure
 WALK_SEED = 4                  # picked for a path that crosses the whole bean
+
+FEM_H = 0.05                   # mesh size of the companion FEM picture: coarse
+                               # enough that the cells are visible at 823 px
 
 HERE = pathlib.Path(__file__).parent
 CACHE = HERE / "mc_cache.npz"
@@ -74,6 +78,12 @@ def main():
     wp, wt, wtr = sample_exits(bean, X0, 1, WALK_DT, rng, n_trace=1)
     print(f"opening walk: tau = {wt[0]:.4f}  ({len(wtr[0])} steps)")
     figures.figure_walk(bean, X0, wtr[0], wp[0], out)
+
+    pts, tri, u_fem, n_bnd, _ = fem.solve(bean, FEM_H)
+    print(f"FEM h={FEM_H:g}: {len(pts)} nodes ({n_bnd} on the boundary), "
+          f"{len(tri)} triangles,  u_FEM(x0) = "
+          f"{fem.value_at(pts, tri, u_fem, x0):+.6f}  (FD {u0:+.6f})")
+    figures.figure_fem(bean, pts, tri, u_fem, X0, out)
 
     figures.figure_field(bean, ref, x0, u0, out)
     figures.figure_measure(bean, ref, x0, exits, out)

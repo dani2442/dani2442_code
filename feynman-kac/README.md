@@ -36,12 +36,23 @@ u(x) = E_x[ g(B_tau) ]   solves   (1/2) Laplace(u) = 0 in Omega,  u = g on dOmeg
   exit distribution as a vector of weights, with no sampling at all. The same
   factorization gives `E_x[tau]` from `(1/2) Laplace(v) = -1`.
 
-- `figures.py` / `main.py` — the four assets of the post: the opening animation
+- `fem.py` — the picture's solver: a genuine P1 finite element solve on an
+  unstructured triangulation of the same bean (boundary resampled at spacing
+  `h`, hexagonal interior lattice, Delaunay, cut back to the boundary polygon,
+  Laplacian-smoothed). Nothing in the post's numbers depends on it —
+  `reference.py` remains the reference — but it gives the companion still its
+  mesh, and it agrees with the finite differences at `x0` to `5e-4` at the
+  drawn `h = 0.05` and to `2e-5` at `h = 0.0125`.
+
+- `figures.py` / `main.py` — the five assets of the post: the opening animation
   of a single path leaving the bean (bare geometry, no data on the boundary),
   the harmonic extension with its level sets, the animation of the Monte Carlo,
-  and the empirical exit distribution against the computed harmonic measure.
-  `main.py` caches the simulation in `mc_cache.npz`; `--fresh` re-runs it. The
-  opening path is its own one-path run at a coarser step (`WALK_DT`,
+  and the empirical exit distribution against the computed harmonic measure --
+  plus `fk_bean_fem.png`, the deterministic answer to the opening animation:
+  the same frame, figure size and dpi (so it is pixel-for-pixel the size of the
+  GIF), with the field and its mesh in place of the path and bare of any
+  chrome. `main.py` caches the simulation in `mc_cache.npz`; `--fresh` re-runs
+  it. The opening path is its own one-path run at a coarser step (`WALK_DT`,
   `WALK_SEED`), picked for a trajectory that crosses the whole domain.
 
 - `validate.py` — the checks, each against something that does not know about
