@@ -21,16 +21,12 @@ class HangingBridge(DeckBridge):
     pier_x = (0.0, 1.0)
     pier_edge, load_edge = "bottom", "bottom"
 
-    ylim = (-0.56, 1.10)
+    ylim = (-0.40, 1.10)
     figure_file = "td_hanging.png"
-    figure_title = ("Hanging bridge: uniformly loaded deck beneath a "
-                    "single-span arch")
 
-    def label_supports(self, ax, compact=False):
-        # Both boundaries sit at the bottom here, so the support labels go
-        # outboard of the load arrows and on a line of their own. In a sweep
-        # panel there is only room for the symbol.
+    def label_supports(self, ax):
+        # Both boundaries sit at the bottom here, so the labels go outboard of
+        # the load arrows, one at each pier.
         for x, ha in ((0.0, "left"), (self.lx, "right")):
-            ax.text(x, -.40, r"$\Gamma_D$" if compact
-                    else r"$\Gamma_D:\ u_x=u_y=0$", ha=ha, va="top",
-                    fontsize=8, color=style.INK_2)
+            ax.text(x, -.27, r"$\Gamma_D$", ha=ha, va="top", fontsize=10,
+                    color=style.INK_2)

@@ -1,96 +1,95 @@
 # Strong and weak PINNs
 
-Reproducible experiments for `content/posts/strong-weak-pinns/index.md`.
-Only this directory and that post's figures are written by the default run.
+Code for `content/posts/strong-weak-pinns/index.md`: matched strong and weak
+PINNs on five one-dimensional problems, plus the exact condition numbers of
+both loss Hessians. The default run writes only `results/` and the post's
+three figures.
 
-## Setup and run
+## Run
 
-From the repository root, create a separate environment (Python 3.11 or later):
+From the repository root, in an environment with NumPy, Matplotlib, and CPU
+PyTorch (Python 3.11 or later):
 
 ```bash
 python -m venv /tmp/strong-weak-pinns-venv
-/tmp/strong-weak-pinns-venv/bin/python -m pip install numpy matplotlib
-/tmp/strong-weak-pinns-venv/bin/python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
-/tmp/strong-weak-pinns-venv/bin/python code/strong-weak-pinns/experiment.py
+/tmp/strong-weak-pinns-venv/bin/pip install numpy matplotlib
+/tmp/strong-weak-pinns-venv/bin/pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+python code/strong-weak-pinns/experiment.py                  # validate, train, plot
+python code/strong-weak-pinns/experiment.py --plot-only      # figures from saved results
+python code/strong-weak-pinns/experiment.py --validate-only  # analytic checks only
+python code/strong-weak-pinns/experiment.py --steps 20 --seeds 0 \
+  --results /tmp/pinns-smoke/results --figures /tmp/pinns-smoke/figures
 ```
 
-Alternatively use the repository's `code/pyproject.toml` environment. Published
-measurements used Python 3.13.11, NumPy 2.5.2, Matplotlib 3.11.1, and PyTorch
-2.14.0+cpu. Full run settings and platform are recorded in `results/metadata.json`.
-Seeds, float64, deterministic PyTorch algorithms, and one CPU thread are fixed;
-different library versions or platforms can still change optimization trajectories.
-
-The default is 21 runs: seven methods, three paired seeds, 3,000 Adam updates
-each. Optimization took about two minutes total on the recorded machine;
-independent quadrature diagnostics add overhead. Final iterates are reported,
-without selecting checkpoints or tuning hyperparameters against the exact solution.
+Library versions and every setting are recorded in `results/metadata.json`.
+Runs are float64, single-threaded, and deterministic for a given platform.
+The default 90 runs take about a quarter of an hour on one CPU core.
 
 ## What is compared
 
-- `strong`: squared strong residual, using second spatial derivatives.
-- `weak-2`, `weak-4`, `weak-8`, `weak-16`, `weak-32`: finite energy-dual residual
-  norms, using first spatial derivatives and diagonal sine-test Gram weighting.
-- `raw-16`: the same 16 sine tests without Gram weighting.
+All problems live on $(0,1)$ with $u(0)=u(1)=0$ and the manufactured solution
+$u^\star = \sin(\pi x) + 0.1\sin(8\pi x)$, from which $f = Au^\star$ is computed.
+Every operator has the form $Au = -(Du')' + au' + cu^3 + \beta uu'$:
 
-All methods use `u(x) = x(1-x) N(2x-1)`, a 1–32–32–1 tanh network, exact
-homogeneous Dirichlet boundary conditions, 128-point Gauss–Legendre quadrature,
-and Adam at `1e-3`. The manufactured solution is `sin(pi*x) + 0.1*sin(8*pi*x)`.
-Training uses only the forcing; the exact solution supplies diagnostics.
+| Key | Problem | Operator |
+| --- | --- | --- |
+| `poisson` | Poisson | $-u''$ |
+| `advection` | Advection–diffusion | $-0.1\,u'' + u'$ |
+| `elasticity` | Elastic bar, stiffness $E(x)=1+x$ | $-(E u')'$ |
+| `reaction` | Reaction–diffusion | $-u'' + u^3$ |
+| `burgers` | Steady Burgers | $-0.1\,u'' + uu'$ |
 
-Strong and raw losses divide by the squared L2 norm of the forcing. Every
-weighted weak loss divides by the same squared energy-dual norm of the forcing,
-computed from its first 32 coefficients (its only nonzero modes are 1 and 8).
-Own loss values are not interchangeable accuracy measures. We also report
-relative L2 solution error, relative energy error, and relative L2 strong residual.
+Two losses are trained, both normalized to be dimensionless:
+
+- `strong`: $\mathcal L_s = \|Au_\theta - f\|_{L^2}^2 / \|f\|_{L^2}^2$, using second derivatives.
+- `weak-m` for $m\in\{4,8,16,32,64\}$: $\mathcal L_w = \sum_{k\le m}\mathcal R_\theta(\phi_k)^2/\lambda_k$
+  divided by $\|f\|_{V'}^2$, with sine tests $\phi_k=\sqrt2\sin(k\pi x)$,
+  $\lambda_k=(k\pi)^2$, and $V=H_0^1$. This is the dual norm of the weak
+  residual restricted to the span of the tests; it uses first derivatives only.
+  The weak residual is $\int (Du_\theta' - \tfrac\beta2 u_\theta^2)\,v' + (au_\theta' + cu_\theta^3)\,v - fv$,
+  so the Burgers term is integrated by parts in conservative form.
+
+The forcing norm $\|f\|_{V'}$ is the $L^2$ norm of the mean-free primitive of
+$f$, computed by nested Gauss–Legendre quadrature. The common error is
+$\mathcal L=\|u_\theta'-u^{\star\prime}\|_{L^2}/\|u^{\star\prime}\|_{L^2}$ on an
+independent 512-point rule. Training never sees $u^\star$.
+
+Every run uses $u_\theta(x)=x(1-x)N_\theta(2x-1)$ with a 1–32–32–1 tanh
+network, 256-point Gauss–Legendre quadrature, full-batch Adam at `1e-3`, and
+3,000 steps. Seeds 0, 1, 2 give identical initial parameters to both losses.
+Final iterates are reported; nothing is selected against the exact solution.
+
+Condition numbers are those of the Gauss–Newton Hessians of both full losses at
+$u^\star$ in the first $N$ sine coefficients, i.e. of the linearized operator;
+for the linear problems this is the exact Hessian.
 
 ## Outputs
 
-- `results/summary.csv`: one row per method and seed, including final objectives,
-  common errors, training time, and quadrature refinement discrepancies.
-- `results/histories.npz`: key `<method>_seed<seed>`, with columns listed in
-  `metadata.json`. Metrics are evaluated at update 0, every 100 updates, and the
-  final update, on independent 512-point quadrature.
-- `results/predictions.npz`: plotting grid `x` and final solutions under the same
-  keys. Full model checkpoints are not stored.
-- `results/table.md`: median summary table generated from the histories, used
-  in the article. If retraining, update the article's table and interpretation too.
-- `conditioning.png`: exact coefficient-space Hessian and gradient descent
-  calculations, plus a test-basis scaling ablation; these are not neural runs.
-- `training.png`: own objectives and common energy errors versus updates/time.
-- `projection.png`: test-count ablation and seed-0 solution curves.
+- `results/histories.npz`: key `<problem>_<method>_seed<seed>`, columns
+  `step`, `normalized_loss`, `common_error`, recorded every 100 steps.
+- `results/conditioning.npz`: condition numbers of the strong and weak loss
+  Hessians in the first `N` sine coefficients, per problem.
+- `results/checks.json`: quadrature-refinement gaps for every run.
+- `results/metadata.json`: settings, versions, and `complete: true` once done.
+- `training.png`, `conditioning.png`, `projection.png` in the post directory.
 
-Figures go directly into `content/posts/strong-weak-pinns/`. Curves show medians
-with min–max shading across seeds. Timing includes forward/backward passes and
-Adam updates, but excludes diagnostics, setup, and plotting. Time-axis positions
-are median cumulative times at each update; this is not a separate fixed-time
-budget experiment.
+## Validation
 
-## Validation and alternate runs
+`validate()` runs before training and asserts, to `1e-8` or tighter unless noted:
 
-```bash
-# Check analytic identities and finite-difference parameter gradients only.
-python code/strong-weak-pinns/experiment.py --validate-only
+- the analytic derivatives of the manufactured solution agree with autograd,
+  and both losses vanish at $u^\star$ for every problem;
+- integration by parts, including the nonlinear terms, holds on the quadrature
+  rule for a non-solution;
+- the linearized operator matches central differences of the operator;
+- 64 sine tests reproduce the full dual-norm Hessian of a four-mode error;
+- parameter gradients of the trained objectives match central differences (`1e-5`);
+- for Poisson: the Riesz identity $\|f\|_{V'}=\|u^\star\|_V$, the sine Gram
+  matrix $\operatorname{diag}(\lambda_k)$, invariance of the weak loss under a
+  random change of test basis, an error in mode 8 that is invisible to the first
+  four tests yet has its full energy, and condition numbers exactly $N^4$ and $N^2$.
 
-# Replot the saved measurements without training.
-python code/strong-weak-pinns/experiment.py --plot-only
-
-# A small end-to-end run, preserving the published results and figures.
-python code/strong-weak-pinns/experiment.py --steps 20 --seeds 0 \
-  --results /tmp/pinns-smoke/results --figures /tmp/pinns-smoke/figures
-
-# A longer independent experiment.
-python code/strong-weak-pinns/experiment.py --steps 10000 --points 256 \
-  --results /tmp/pinns-long/results --figures /tmp/pinns-long/figures
-```
-
-Validation checks the PDE sign, integration by parts, sine-test Gram matrix,
-basis invariance, a blind high-frequency error, and parameter gradients of all
-three loss types. Each trained model is checked with 1,024 diagnostic points
-and twice its training quadrature. The run fails if diagnostic errors change
-by more than `1e-5` relatively or its normalized objective by more than `1e-7`
-absolutely. For very small projected losses, absolute discrepancies are the
-useful check; a tiny tested loss alone is not a convergence certificate.
-
-The experiment does not establish a neural inf-sup bound, measure parameter
-Hessians, or demonstrate universal optimizer superiority. Covering the forcing's
-modes does not cover all errors a neural network can generate.
+After training, each model is re-evaluated with doubled diagnostic and training
+quadrature; the run fails if the common error moves by more than `1e-5`
+relatively or the loss by more than `1e-7` absolutely.

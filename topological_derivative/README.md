@@ -75,7 +75,7 @@ plane stress the prefactor collapses to `1/E`, in plane strain to `(1-nu^2)/E`.
 To add a load case, add one module to `examples/`, export it from
 `examples/__init__.py`, and call it from `topopt.py`. Nothing else needs to
 change: a `Problem` answers for its own view limits, boundary-condition
-symbols, figure titles and cache key, so the solver and the figures already
+symbols, view limits and cache key, so the solver and the figures already
 handle it.
 
 ## Run

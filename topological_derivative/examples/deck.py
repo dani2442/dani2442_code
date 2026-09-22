@@ -68,18 +68,18 @@ class DeckBridge(Problem):
         self.keep = (deck | heads).ravel()
 
     # -- boundary-condition symbols -------------------------------------------
-    def draw_supports(self, ax, compact=False):
+    def draw_supports(self, ax):
         # The piers stand under the deck, except where they hang it from above
         # and the symbols are mirrored.
         base, out = (self.ly, .11) if self.pier_edge == "top" else (0.0, -.11)
         draw.piers(ax, self.piers, base, out)
-        self.label_supports(ax, compact)
+        self.label_supports(ax)
 
-    def label_supports(self, ax, compact=False):
+    def label_supports(self, ax):
         """Place the Gamma_D label, which is what the variants disagree on."""
         raise NotImplementedError
 
-    def draw_load(self, ax, compact=False):
+    def draw_load(self, ax):
         xy = self.nodes[self.loaded_nodes]
         draw.loaded_edge(ax, xy)
         # The arrows press down onto the top edge, or pull the bottom edge
@@ -93,7 +93,6 @@ class DeckBridge(Problem):
         if self.piers_on_load_edge:
             xs = [x for x in xs if np.abs(self.piers - x).min() >= .14]
         draw.down_arrows(ax, xs, tail, head)
-        ax.text(.5 * self.lx, label_y,
-                r"$\Gamma_N$: uniform $g\downarrow$ on the whole %s edge"
-                % self.load_edge, ha="center", va=va, color=style.ORANGE,
-                fontsize=9.5)
+        # Past the arrow tails, clear of the piers wherever they stand.
+        ax.text(.5 * self.lx, label_y, r"$\Gamma_N$", ha="center", va=va,
+                color=style.ORANGE, fontsize=10)

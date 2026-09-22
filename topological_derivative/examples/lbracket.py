@@ -20,8 +20,6 @@ class LBracket(Problem):
 
     figsize = (5.2, 5.2)
     figure_file = "td_lbracket.png"
-    figure_title = ("L-bracket: top clamp, downward traction on the "
-                    "horizontal arm")
 
     def boundary_conditions(self):
         nid = self.node_grid()
@@ -50,12 +48,12 @@ class LBracket(Problem):
                      (Xc > self.lx - 2 * self.half - 2 * hx)).ravel()
 
     # -- boundary-condition symbols -------------------------------------------
-    def draw_supports(self, ax, compact=False):
+    def draw_supports(self, ax):
         draw.clamped_edge(ax, self.nodes[self.fixed_nodes], tick=(.025, .025))
-        ax.text(.2, 1.07, r"$\Gamma_D:\ u=0$", ha="center",
-                color=style.INK_2, fontsize=10)
+        ax.text(.2, 1.07, r"$\Gamma_D$", ha="center", color=style.INK_2,
+                fontsize=10)
 
-    def draw_load(self, ax, compact=False):
+    def draw_load(self, ax):
         xy = self.nodes[self.loaded_nodes]
         draw.loaded_edge(ax, xy)
         # The loaded patch is horizontal, so the arrows press down onto it from

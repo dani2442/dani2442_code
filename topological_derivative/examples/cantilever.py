@@ -39,12 +39,12 @@ class Cantilever(Problem):
                      (np.abs(Yc - 0.5 * self.ly) < self.half + 2 * hy)).ravel()
 
     # -- boundary-condition symbols -------------------------------------------
-    def draw_supports(self, ax, compact=False):
+    def draw_supports(self, ax):
         draw.clamped_edge(ax, self.nodes[self.fixed_nodes], tick=(-.025, -.025))
         ax.text(-.07, .5 * self.ly, r"$\Gamma_D$", ha="right", va="center",
                 color=style.INK_2, fontsize=10)
 
-    def draw_load(self, ax, compact=False):
+    def draw_load(self, ax):
         xy = self.nodes[self.loaded_nodes]
         draw.loaded_edge(ax, xy)
         # A leader identifies the loaded vertical patch; the adjacent arrow

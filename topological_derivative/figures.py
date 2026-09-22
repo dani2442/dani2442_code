@@ -24,17 +24,17 @@ def _save(fig, path, dpi):
 # -----------------------------------------------------------------------------
 # Setup and the raw gradient
 # -----------------------------------------------------------------------------
-def figure_mesh(p, out, run_shape):
-    """The triangulated design domain and its boundary conditions."""
+def figure_mesh(p, out):
+    """The triangulated design domain and its boundary conditions.
+
+    Every figure is captioned in the post, so none of them carries a title of
+    its own; what a panel cannot say without one is a number, and those are in
+    the titles that remain.
+    """
     fig, ax = plt.subplots(figsize=(6.6, 3.6))
     ax.triplot(draw.triangulation(p), lw=0.55, color=style.MUTED, alpha=0.55)
     p.annotate(ax)
     draw.bare(ax, p)
-    ax.set_title(r"Design domain $\Omega_0$, shown at $%d\times%d$ cells "
-                 r"(%d nodes, %d triangles)"
-                 % (p.nx, p.ny, len(p.nodes), len(p.tris)) + "\n"
-                 r"the runs below use $%d\times%d$ cells" % run_shape,
-                 color=style.INK, fontsize=10)
     fig.tight_layout()
     _save(fig, out / "td_mesh.png", dpi=170)
 
@@ -48,9 +48,6 @@ def figure_gradient(p, g_tri, out):
     cb.set_label(r"$D_TJ(\hat x)$", color=style.INK_2)
     cb.outline.set_visible(False)
     cb.ax.tick_params(color=style.MUTED, labelcolor=style.INK_2)
-    ax.set_title(r"Topological gradient of the compliance on $\Omega_0$"
-                 "\n" r"dark $=$ expensive to perforate,  light $=$ nearly free",
-                 color=style.INK)
     fig.tight_layout()
     _save(fig, out / "td_gradient.png", dpi=170)
 
@@ -62,7 +59,6 @@ def figure_convergence(p, hist, out):
     """Static version of the history panel of the animation."""
     fig, ax = plt.subplots(figsize=(7.2, 2.8))
     draw.plot_history(ax, hist)
-    ax.set_title(f"{p.title}: material use and stiffness")
     fig.tight_layout()
     _save(fig, out / "td_convergence.png", dpi=170)
 
@@ -72,35 +68,31 @@ def figure_example(p, chi, hist, out):
     fig, ax = plt.subplots(figsize=p.figsize)
     draw.plot_design(ax, p, chi)
     p.annotate(ax)
-    ax.set_title(p.figure_title + "\n" +
-                 r"$V=%.2f$,  $r_{\min}/h=%.1f$,  $J/J_0=%.2f$  (%d iterations)"
+    ax.set_title(r"$V=%.2f$,   $r_{\min}/h=%.1f$,   $J/J_0=%.2f$"
                  % (hist["V"][-1], p.rmin_cells,
-                    hist["J"][-1] / hist["J"][0], len(hist["J"]) - 1),
-                 fontsize=10)
+                    hist["J"][-1] / hist["J"][0]), fontsize=10)
     fig.tight_layout()
     _save(fig, out / p.figure_file, dpi=170)
 
 
-def figure_sweep(results, out, filename, subtitle):
-    """Rows change the length scale, columns change the material budget."""
+def figure_sweep(results, out, filename):
+    """Rows change the length scale, columns change the material budget.
+
+    Which settings a panel ran at is the one thing its picture cannot show, so
+    that is all its title says; everything the nine runs share is in the post.
+    """
     radii = sorted({p.rmin_cells for p, _, _ in results})
     volumes = sorted({p.vol_frac for p, _, _ in results})
-    fig, axes = plt.subplots(len(radii), len(volumes), figsize=(13.6, 8.5),
+    fig, axes = plt.subplots(len(radii), len(volumes), figsize=(13.6, 7.4),
                              squeeze=False)
     for p, chi, hist in results:
         ax = axes[radii.index(p.rmin_cells), volumes.index(p.vol_frac)]
         draw.plot_design(ax, p, chi)
-        p.annotate(ax, compact=True)
-        ax.set_title(r"$V=%.2f$   $r_{\min}/h=%.1f$" % (p.vol_frac, p.rmin_cells)
-                     + "\n" + r"$J/J_0=%.2f$   stiffness $=%.0f\%%$"
-                     % (hist["J"][-1] / hist["J"][0],
-                        100 * hist["J"][0] / hist["J"][-1]), fontsize=10)
-    p0, hist0 = results[0][0], results[0][2]
-    fig.suptitle("One bridge load case, nine final configurations\n"
-                 r"same $%d\times%d$ cell mesh, " % (p0.nx, p0.ny) + subtitle +
-                 r", material and %d iterations; evolution rate $%g\%%$"
-                 % (len(hist0["J"]) - 1, 100 * p0.evol_rate), fontsize=13)
-    fig.tight_layout(rect=(0, 0, 1, .93), h_pad=3.2, w_pad=2)
+        p.annotate(ax)
+        ax.set_title(r"$V=%.2f$   $r_{\min}/h=%.1f$   $J/J_0=%.2f$"
+                     % (p.vol_frac, p.rmin_cells,
+                        hist["J"][-1] / hist["J"][0]), fontsize=10)
+    fig.tight_layout(h_pad=2.4, w_pad=2)
     _save(fig, out / filename, dpi=150)
 
 

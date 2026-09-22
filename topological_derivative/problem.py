@@ -28,7 +28,7 @@ class Problem:
 
     # -- identity, declared by each load case ---------------------------------
     name = ""
-    title = ""                  # human-readable name, used in figure titles
+    title = ""                  # human-readable name, for the animation header
     label = ""                  # one-line description of the boundary data
     support_condition = ""      # prose for td_results.json; defaults to `label`
     cache_tag = ""              # keeps cached runs of related variants apart
@@ -42,10 +42,10 @@ class Problem:
     n_iter = 90                 # updates, i.e. solved states minus one
 
     # -- figure geometry ------------------------------------------------------
-    ylim = (-0.05, 1.16)        # y view limits, in units of ly
+    ylim = (-0.09, 1.09)        # y view limits, in units of ly
     figsize = (8.4, 4.2)
-    figure_file = figure_title = None   # set for a standalone design figure
-    gif_file = None                     # set for an animated load case
+    figure_file = None          # set for a standalone design figure
+    gif_file = None             # set for an animated load case
 
     def __init__(self, nx=None, ny=None, vol_frac=None, rmin_cells=None):
         self.nx = self.shape[0] if nx is None else nx
@@ -126,22 +126,23 @@ class Problem:
         return np.unique(np.where(np.abs(self.f) > 0)[0] // 2)
 
     # -- boundary-condition symbols -------------------------------------------
-    def annotate(self, ax, compact=False):
+    def annotate(self, ax):
         """Draw the displacement constraints and the prescribed traction.
 
         The two are drawn separately because they are different objects: the
         bridges have pinned *point* supports rather than clamped edges, and
         those point constraints belong to the discrete benchmark, while
-        Gamma_D labels the constrained components.  `compact=True` asks for
-        abbreviated labels, for the small panels of a parameter sweep.
+        Gamma_D labels the constrained components.  Both are labelled by the
+        symbol alone, small enough for a sweep panel; what they stand for is
+        the post's job to say.
         """
-        self.draw_supports(ax, compact)
-        self.draw_load(ax, compact)
+        self.draw_supports(ax)
+        self.draw_load(ax)
 
-    def draw_supports(self, ax, compact=False):
+    def draw_supports(self, ax):
         """Draw Gamma_D: the displacement constraints and their label."""
         raise NotImplementedError
 
-    def draw_load(self, ax, compact=False):
+    def draw_load(self, ax):
         """Draw Gamma_N: the loaded boundary, its traction and its label."""
         raise NotImplementedError

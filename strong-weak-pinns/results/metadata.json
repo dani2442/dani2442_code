@@ -5,7 +5,7 @@
     1,
     2
   ],
-  "points": 128,
+  "points": 256,
   "width": 32,
   "lr": 0.001,
   "log_every": 100,
@@ -13,21 +13,79 @@
   "figures": "/home/id94ebid/projects/dani2442.github.io/content/posts/strong-weak-pinns",
   "plot_only": false,
   "validate_only": false,
-  "python": "3.13.11",
+  "python": "3.11.13",
   "torch": "2.14.0+cpu",
-  "numpy": "2.5.2",
-  "matplotlib": "3.11.1",
-  "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+  "numpy": "2.4.6",
   "device": "cpu",
   "dtype": "float64",
   "threads": 1,
+  "problems": [
+    {
+      "key": "poisson",
+      "title": "Poisson",
+      "d0": 1.0,
+      "d1": 0.0,
+      "a": 0.0,
+      "c": 0.0,
+      "beta": 0.0
+    },
+    {
+      "key": "advection",
+      "title": "Advection\u2013diffusion",
+      "d0": 0.1,
+      "d1": 0.0,
+      "a": 1.0,
+      "c": 0.0,
+      "beta": 0.0
+    },
+    {
+      "key": "elasticity",
+      "title": "Elastic bar",
+      "d0": 1.0,
+      "d1": 1.0,
+      "a": 0.0,
+      "c": 0.0,
+      "beta": 0.0
+    },
+    {
+      "key": "reaction",
+      "title": "Reaction\u2013diffusion",
+      "d0": 1.0,
+      "d1": 0.0,
+      "a": 0.0,
+      "c": 1.0,
+      "beta": 0.0
+    },
+    {
+      "key": "burgers",
+      "title": "Steady Burgers",
+      "d0": 0.1,
+      "d1": 0.0,
+      "a": 0.0,
+      "c": 0.0,
+      "beta": 1.0
+    }
+  ],
+  "methods": [
+    "strong",
+    "weak-4",
+    "weak-8",
+    "weak-16",
+    "weak-32",
+    "weak-64"
+  ],
+  "counts": [
+    4,
+    8,
+    16,
+    32,
+    64
+  ],
+  "comparison_tests": 64,
   "history_columns": [
     "step",
-    "training_seconds",
-    "objective",
-    "relative_l2",
-    "relative_energy",
-    "relative_residual"
+    "normalized_loss",
+    "common_error"
   ],
   "solution_modes": [
     1,
@@ -36,5 +94,9 @@
   "solution_amplitudes": [
     1.0,
     0.1
-  ]
+  ],
+  "evaluation_points": 512,
+  "common_error": "relative H_0^1 seminorm",
+  "weak_test_norm": "H_0^1 seminorm",
+  "complete": true
 }

@@ -23,12 +23,9 @@ class SuspendedBridge(DeckBridge):
     pier_x = (0.0, 0.5, 1.0)
     pier_edge, load_edge = "top", "bottom"
 
-    ylim = (-0.42, 1.42)
+    ylim = (-0.38, 1.32)
     figure_file = "td_suspended.png"
-    figure_title = ("Suspended deck: the same load hung from three piers on "
-                    "the top edge")
 
-    def label_supports(self, ax, compact=False):
-        ax.text(.5 * self.lx, self.ly + .17,
-                r"$\Gamma_D:\ u_x=u_y=0$ at three piers",
-                ha="center", va="bottom", fontsize=8, color=style.INK_2)
+    def label_supports(self, ax):
+        ax.text(.5 * self.lx, self.ly + .17, r"$\Gamma_D$", ha="center",
+                va="bottom", fontsize=10, color=style.INK_2)

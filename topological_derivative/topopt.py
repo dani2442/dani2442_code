@@ -121,8 +121,7 @@ class Runner:
 
 def run_cantilever(runner, out):
     """The introductory case: setup, raw gradient, animation and history."""
-    figures.figure_mesh(examples.Cantilever(24, 12), out,
-                        run_shape=examples.Cantilever.shape)
+    figures.figure_mesh(examples.Cantilever(24, 12), out)
     p = examples.Cantilever()
     _, _, g_tri = solver.solve_state(p, np.ones(p.n_cells))
     figures.figure_gradient(p, g_tri, out)
@@ -131,7 +130,7 @@ def run_cantilever(runner, out):
     figures.figure_convergence(p, hist, out)
 
 
-def run_sweep(runner, out, build, filename, subtitle):
+def run_sweep(runner, out, build, filename):
     """Nine runs of one load case over filter radius and material budget.
 
     The baseline panel also gets a figure of its own: an animation for the load
@@ -149,7 +148,7 @@ def run_sweep(runner, out, build, filename, subtitle):
                 figures.figure_animation(p, hist, out)
             elif baseline:
                 figures.figure_example(p, chi, hist, out)
-    figures.figure_sweep(results, out, filename, subtitle)
+    figures.figure_sweep(results, out, filename)
 
 
 def main():
@@ -166,10 +165,8 @@ def main():
     runner = Runner(args.cache_dir)
 
     run_cantilever(runner, out)
-    run_sweep(runner, out, examples.Bridge, "td_bridge_sweep.png",
-              r"three piers, uniform deck load")
-    run_sweep(runner, out, examples.HangingBridge, "td_hanging_sweep.png",
-              r"two end piers, uniform load on the bottom edge")
+    run_sweep(runner, out, examples.Bridge, "td_bridge_sweep.png")
+    run_sweep(runner, out, examples.HangingBridge, "td_hanging_sweep.png")
 
     # The suspended deck is the exact vertical mirror of the three-pier
     # bridge, so one run at the baseline settings is enough: sweeping it would
